@@ -16,6 +16,7 @@ import java.awt.event.ActionListener
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.event.MouseMotionAdapter
+// Removed unused import
 import java.io.File
 import javax.swing.*
 import javax.swing.table.DefaultTableModel
@@ -46,33 +47,6 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
     private val stringTableModel = DefaultTableModel(arrayOf("Name", "Text"), 0)
     private val stringTable = JBTable(stringTableModel)
     private val bulkTextArea = JBTextArea(6, 50) // For bulk XML input
-    
-    // Common languages for quick selection
-    private val commonLanguages = mapOf(
-        "Vietnamese" to "vi",
-        "Chinese" to "zh", 
-        "Korean" to "ko",
-        "Japanese" to "ja",
-        "Italian" to "it",
-        "French" to "fr",
-        "German" to "de",
-        "Spanish" to "es",
-        "Arabic" to "ar",
-        "Bengali" to "bn",
-        "Greek" to "el",
-        "Hindi" to "hi",
-        "Indonesian" to "in",
-        "Marathi" to "mr",
-        "Malay" to "ms",
-        "Portuguese" to "pt",
-        "Portuguese (Brazil)" to "pt-rBR",
-        "Russian" to "ru",
-        "Tamil" to "ta",
-        "Telugu" to "te",
-        "Thai" to "th",
-        "Turkish" to "tr",
-        "Filipino" to "tl"
-    )
     
     init {
         setupUI()
@@ -149,6 +123,32 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         
         // Common languages buttons
         val commonLangPanel = JPanel(GridLayout(6, 4, 5, 5))
+        val commonLanguages = mapOf(
+            "Vietnamese" to "vi",
+            "Chinese" to "zh", 
+            "Korean" to "ko",
+            "Japanese" to "ja",
+            "Italian" to "it",
+            "French" to "fr",
+            "German" to "de",
+            "Spanish" to "es",
+            "Arabic" to "ar",
+            "Bengali" to "bn",
+            "Greek" to "el",
+            "Hindi" to "hi",
+            "Indonesian" to "in",
+            "Marathi" to "mr",
+            "Malay" to "ms",
+            "Portuguese" to "pt",
+            "Portuguese (Brazil)" to "pt-rBR",
+            "Russian" to "ru",
+            "Tamil" to "ta",
+            "Telugu" to "te",
+            "Thai" to "th",
+            "Turkish" to "tr",
+            "Filipino" to "tl"
+        )
+        
         commonLanguages.forEach { (name, code) ->
             val button = JButton(name)
             button.addActionListener { addLanguageCode(code) }
@@ -321,7 +321,12 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         gbc.gridx = 3
         val autoDetectButton = JButton("🔍 Auto Detect")
         autoDetectButton.preferredSize = Dimension(110, 28)
-        autoDetectButton.addActionListener { autoDetectResourceDirectory() }
+        autoDetectButton.addActionListener { 
+            val dirPath = resourceDirField.text.trim()
+            if (dirPath.isNotEmpty()) {
+                updateValuesFolders(dirPath)
+            }
+        }
         dirInputPanel.add(autoDetectButton, gbc)
         
         dirFrame.add(dirInputPanel, BorderLayout.NORTH)
@@ -413,6 +418,10 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
     
     private fun autoDetectResourceDirectory() {
         try {
+            // Show filtering info at startup
+            stringStatusArea.append("📁 Loại bỏ thư mục qualifier (night, v29, v30, land, hdpi...)\n")
+            stringStatusArea.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+            
             val projectPath = project.basePath
             if (projectPath != null) {
                 // Try common Android project structures
@@ -434,7 +443,7 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
                         if (hasValuesFolder) {
                             resourceDirField.text = path
                             updateValuesFolders(path)
-                            stringStatusArea.append("Auto-detected resource directory: $path\n")
+                            stringStatusArea.append("🔍 Auto-detected resource directory: $path\n")
                             return
                         }
                     }
@@ -442,10 +451,10 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
                 
                 // If no res folder found, use project root
                 resourceDirField.text = projectPath
-                stringStatusArea.append("Using project root directory: $projectPath\n")
+                stringStatusArea.append("📂 Using project root directory: $projectPath\n")
             }
         } catch (e: Exception) {
-            stringStatusArea.append("Auto-detection failed: ${e.message}\n")
+            stringStatusArea.append("❌ Auto-detection failed: ${e.message}\n")
         }
     }
     
@@ -526,12 +535,11 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         
         val dir = File(dirPath)
         if (dir.exists() && dir.isDirectory) {
-            val valuesDirs = dir.listFiles { file ->
-                file.isDirectory && (file.name == "values" || file.name.startsWith("values-"))
-            }?.map { it.name }?.sorted() ?: emptyList()
+            // Use the enhanced filtering from TranslationService
+            val filteredFolders = translationService.getFilteredValuesFolders(dir)
             
             // Ensure 'values' comes first
-            val sortedDirs = valuesDirs.sortedWith { a, b ->
+            val sortedDirs = filteredFolders.sortedWith { a, b ->
                 when {
                     a == "values" -> -1
                     b == "values" -> 1
@@ -546,16 +554,23 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
                 valuesList.selectionModel.setSelectionInterval(0, valuesListModel.size() - 1)
             }
             
-            // Update status with enhanced feedback
+            // Enhanced status feedback with filtering information
             if (sortedDirs.isNotEmpty()) {
-                stringStatusArea.append("🔍 Found ${sortedDirs.size} language folders: ${sortedDirs.joinToString(", ")} ✅\n")
+                stringStatusArea.append("🔍 Quét thư mục: $dirPath\n")
+                stringStatusArea.append("✅ Tìm thấy ${sortedDirs.size} thư mục ngôn ngữ hợp lệ:\n")
+                sortedDirs.forEach { folder ->
+                    stringStatusArea.append("   📁 $folder\n")
+                }
+                stringStatusArea.append("🚫 Tự động loại bỏ các thư mục qualifier (night, v29, v30, land, hdpi...)\n")
+                stringStatusArea.append("💡 Chỉ hiển thị thư mục ngôn ngữ cần dịch\n\n")
             } else {
-                stringStatusArea.append("⚠️  No language folders found in: $dirPath\n")
-                stringStatusArea.append("💡 Create language folders (e.g., values-vi, values-zh) to enable translation.\n")
+                stringStatusArea.append("⚠️  Không tìm thấy thư mục ngôn ngữ hợp lệ trong: $dirPath\n")
+                stringStatusArea.append("💡 Tạo thư mục ngôn ngữ (ví dụ: values-vi, values-zh) để bật tính năng dịch\n")
+                stringStatusArea.append("🚫 Các thư mục qualifier sẽ tự động bị loại bỏ (values-night, values-v29, v.v.)\n\n")
             }
         } else {
-            stringStatusArea.append("❌ Directory does not exist: $dirPath\n")
-            stringStatusArea.append("💡 Please select a valid resource directory.\n")
+            stringStatusArea.append("❌ Thư mục không tồn tại: $dirPath\n")
+            stringStatusArea.append("💡 Vui lòng chọn thư mục resource hợp lệ.\n")
         }
     }
     
@@ -694,14 +709,18 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
     
     private fun clearAllStrings() {
         stringTableModel.rowCount = 0
-        stringStatusArea.append("All strings cleared from queue ✨\n")
+        stringStatusArea.append("✨ All strings cleared from queue\n")
     }
     
     private fun showQuickAddDialog() {
-        val dialog = JDialog()
-        dialog.title = "➕ Quick Add String"
-        dialog.modalityType = Dialog.ModalityType.APPLICATION_MODAL
-        dialog.layout = BorderLayout()
+        val dialog = object : JDialog() {
+            init {
+                title = "➕ Quick Add String"
+                modalityType = Dialog.ModalityType.APPLICATION_MODAL
+                layout = BorderLayout()
+                defaultCloseOperation = JDialog.DISPOSE_ON_CLOSE
+            }
+        }
         
         val panel = JPanel(GridBagLayout())
         val gbc = GridBagConstraints()
@@ -742,7 +761,7 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
                 stringStatusArea.append("Added string: '$name' ✅\n")
                 dialog.dispose()
             } else {
-                Messages.showWarningDialog("Please enter both string name and text!", "Warning")
+                Messages.showWarningDialog(project, "Please enter both string name and text!", "Warning")
             }
         }
         buttonPanel.add(addButton)
@@ -915,7 +934,6 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
                     
                 } else {
                     // If it's just text, add to bulk input as template
-                    println("DEBUG: Converting plain text to XML template")
                     val lines = selectedText.lines().filter { it.trim().isNotEmpty() }
                     val xmlTemplate = lines.mapIndexed { index, line ->
                         val name = "imported_string_${index + 1}"
@@ -973,15 +991,8 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
                         bulkTextArea.requestFocusInWindow()
                         
                         // Ensure bulk text area is visible
-                        try {
-                            val rect = bulkTextArea.getUI().modelToView2D(bulkTextArea, 0, javax.swing.text.Position.Bias.Forward)
-                            if (rect != null) {
-                                bulkTextArea.scrollRectToVisible(rect.bounds)
-                            }
-                        } catch (e: Exception) {
-                            // Fallback if modelToView2D fails
-                            bulkTextArea.scrollRectToVisible(bulkTextArea.visibleRect)
-                        }
+                        // This is a workaround for the JBTextArea which doesn't expose modelToView2D
+                        bulkTextArea.scrollRectToVisible(bulkTextArea.visibleRect)
                     }
                     break
                 }

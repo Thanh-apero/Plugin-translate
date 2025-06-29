@@ -1,15 +1,14 @@
 <idea-plugin>
-    <id>com.xmltranslator.plugin</id>
-    <name>XML Translator</name>
-    <vendor email="thanhnguyen6702@gmail.com" url="https://github.com/Thanh-apero/Plugin-translate">Apero-Translate</vendor>
+    <id>com.translatestrings.plugin</id>
+    <name>Translate strings</name>
+    <vendor email="thanhnguyen6702@gmail.com" url="https://github.com/thanhnguyen6702">Thanh Nguyen</vendor>
     <version>0.0.1</version>
     
     <!-- License information -->
-
     <license>MIT</license>
 
     <description><![CDATA[
-        A powerful XML translation plugin for IntelliJ-based IDEs (including Android Studio) that helps developers translate string resources using Google Generative AI.
+        A powerful string translation plugin for IntelliJ-based IDEs (including Android Studio) that helps developers translate string resources using Google Generative AI.
         
         Features:
         - Translate entire XML files to multiple languages using Google Generative AI (Gemini 2.5 Flash)
@@ -20,19 +19,23 @@
         - Integration with project resource structure and auto-detection
         - Smart rate limiting and API key rotation for reliability
         - Configurable API keys with secure storage
+        - Auto-filtering of qualifier folders (night, v29, land, hdpi...)
         
         Perfect for developers who need to quickly localize their applications, especially Android developers working with string resources.
+        
+        Author: Thanh Nguyen (thanhnguyen6702@gmail.com)
     ]]></description>
 
     <change-notes><![CDATA[
         <h3>Version 0.0.1</h3>
         <ul>
-            <li>🚀 <strong>Initial Release</strong> - First version of XML Translator plugin</li>
+            <li>🚀 <strong>Initial Release</strong> - First version of Translate strings plugin</li>
             <li>🌍 <strong>Multi-language Translation</strong> - Support for 25+ languages</li>
             <li>🤖 <strong>Google AI Integration</strong> - Powered by Google Generative AI (Gemini 2.5 Flash)</li>
             <li>📝 <strong>XML File Translation</strong> - Translate entire XML string resource files</li>
             <li>✨ <strong>Individual String Translation</strong> - Add and translate single strings</li>
             <li>🔑 <strong>API Key Management</strong> - Configurable API keys with secure storage</li>
+            <li>🛡️ <strong>Smart Filtering</strong> - Auto-exclude qualifier folders (night, v29, land, hdpi...)</li>
         </ul>
     ]]></change-notes>
 
@@ -41,7 +44,7 @@
 
     <extensions defaultExtensionNs="com.intellij">
         <!-- Tool window for the translator -->
-        <toolWindow id="XML Translator"
+        <toolWindow id="Translate strings"
                     secondary="true"
                     anchor="right"
                     icon="/icons/toolWindow.svg"
@@ -56,7 +59,7 @@
         <!-- Settings configurable -->
         <applicationConfigurable
                 id="XmlTranslatorSettings"
-                displayName="XML Translator"
+                displayName="Translate strings"
                 groupId="tools"
                 instance="com.xmltranslator.settings.XmlTranslatorConfigurable"/>
     </extensions>
@@ -66,8 +69,8 @@
         <!-- Import Selected Text Action - Smart context-aware action -->
         <action id="ImportSelectedTextAction" 
                 class="com.xmltranslator.actions.ImportSelectedTextAction"
-                text="🔄 Import to XML Translator" 
-                description="Import selected XML strings to XML Translator plugin">
+                text="🔄 Import to Translate strings"
+                description="Import selected XML strings to Translate strings plugin">
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
         </action>
 
@@ -83,8 +86,8 @@
         <!-- Open Translator Action - Main menu access -->
         <action id="XmlTranslator.OpenTranslator"
                 class="com.xmltranslator.actions.OpenTranslatorAction"
-                text="🔧 XML Translator"
-                description="Open XML Translator tool window powered by Google AI">
+                text="🔧 Translate strings"
+                description="Open Translate strings tool window powered by Google AI">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
     </actions>

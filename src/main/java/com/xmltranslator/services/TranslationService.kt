@@ -14,6 +14,12 @@ import java.net.http.HttpResponse
 import java.time.Duration
 import java.util.concurrent.atomic.AtomicInteger
 
+/**
+ * Translation service for handling string translation using Google Generative AI.
+ * Features automatic filtering of qualifier folders and smart batch processing.
+ * 
+ * @author Thanh Nguyen <thanhnguyen6702@gmail.com>
+ */
 @Service(Service.Level.PROJECT)
 class TranslationService(private val project: Project) {
     
@@ -22,6 +28,146 @@ class TranslationService(private val project: Project) {
     private val httpClient = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(30))
         .build()
+    
+    // Comprehensive patterns for automatic filtering (removed duplicate basic patterns)
+    private val excludePatterns = listOf(
+        // Version-specific qualifiers
+        "-v\\d+",                                    // Any version qualifier (v21, v29, v30, etc.)
+        "value-v\\d+",                              // Direct value-v patterns
+        
+        // Screen configuration qualifiers
+        "-night", "-notnight",                       // Night mode qualifiers
+        "value-night", "value-notnight",            // Direct value-night patterns
+        
+        // Orientation qualifiers
+        "-land", "-port",                           // Landscape/Portrait
+        "value-land", "value-port",                 // Direct value-land patterns
+        
+        // Screen size qualifiers
+        "-small", "-normal", "-large", "-xlarge",   // Screen sizes
+        "value-small", "value-normal", "value-large", "value-xlarge",
+        
+        // Screen density qualifiers
+        "-ldpi", "-mdpi", "-hdpi", "-xhdpi", "-xxhdpi", "-xxxhdpi", "-nodpi", "-tvdpi",
+        "value-ldpi", "value-mdpi", "value-hdpi", "value-xhdpi", "value-xxhdpi", "value-xxxhdpi",
+        
+        // Screen width/height qualifiers
+        "-sw\\d+dp", "-w\\d+dp", "-h\\d+dp",        // Smallest width, width, height
+        "value-sw\\d+dp", "value-w\\d+dp", "value-h\\d+dp",
+        
+        // UI Mode qualifiers
+        "-car", "-desk", "-television", "-appliance", "-watch", "-vrheadset",
+        "value-car", "value-desk", "value-television", "value-appliance", "value-watch", "value-vrheadset",
+        
+        // Keyboard and input qualifiers
+        "-keysexposed", "-keyshidden", "-keyssoft",
+        "-notouch", "-stylus", "-finger",
+        "-trackball", "-wheel", "-dpad",
+        
+        // Navigation qualifiers
+        "-navexposed", "-navhidden",
+        "-nonav", "-dpad", "-trackball", "-wheel",
+        
+        // Round screen qualifier (for watches)
+        "-round", "-notround"
+    )
+    
+    /**
+     * Get filtered values folders from a directory
+     * Automatically excludes unwanted qualifier combinations
+     */
+    fun getFilteredValuesFolders(resourceDir: File): List<String> {
+        if (!resourceDir.exists() || !resourceDir.isDirectory) {
+            return emptyList()
+        }
+        
+        val allValuesFolders = resourceDir.listFiles { file ->
+            file.isDirectory && file.name.startsWith("values")
+        }?.map { it.name } ?: emptyList()
+        
+        val filteredFolders = allValuesFolders.filter { folderName ->
+            !shouldExcludeValuesFolder(folderName)
+        }.sorted()
+        
+        // Simple log for excluded folders
+        val excludedFolders = allValuesFolders.filter { folderName ->
+            shouldExcludeValuesFolder(folderName)
+        }
+        
+        if (excludedFolders.isNotEmpty()) {
+            println("🚫 Loại bỏ ${excludedFolders.size} thư mục: ${excludedFolders.joinToString(", ")}")
+        }
+        
+        return filteredFolders
+    }
+    
+    /**
+     * Get simplified filtering information
+     */
+    fun getFilteringInfo(): String {
+        return "🛡️ ${excludePatterns.size} patterns đã được cấu hình để loại bỏ qualifier folders"
+    }
+    
+    /**
+     * Test if a string name or folder name would be excluded
+     * Useful for debugging and preview
+     */
+    fun testExclusion(name: String, isFolder: Boolean = false): Pair<Boolean, String> {
+        val isExcluded = if (isFolder) {
+            shouldExcludeValuesFolder(name)
+        } else {
+            shouldExcludeString(name)
+        }
+        
+        val reason = if (isExcluded) {
+            val matchingPatterns = mutableListOf<String>()
+            
+            // Check patterns (now consolidated)
+            excludePatterns.forEach { pattern ->
+                if (name.matches(".*$pattern.*".toRegex(RegexOption.IGNORE_CASE))) {
+                    matchingPatterns.add("Matched: $pattern")
+                }
+            }
+            
+            "Matched patterns: ${matchingPatterns.joinToString(", ")}"
+        } else {
+            "No matching exclusion patterns"
+        }
+        
+        return isExcluded to reason
+    }
+    
+    /**
+     * Check if a string name should be excluded from processing
+     * Enhanced to catch more patterns automatically
+     */
+    private fun shouldExcludeString(stringName: String): Boolean {
+        // Check against consolidated patterns
+        return excludePatterns.any { pattern ->
+            stringName.matches(".*$pattern.*".toRegex(RegexOption.IGNORE_CASE))
+        }
+    }
+    
+    /**
+     * Check if a values folder should be excluded from processing
+     * Enhanced with comprehensive pattern matching
+     */
+    private fun shouldExcludeValuesFolder(folderName: String): Boolean {
+        // Skip if folder doesn't start with "values"
+        if (!folderName.startsWith("values")) {
+            return false
+        }
+        
+        // Always include base "values" folder
+        if (folderName == "values") {
+            return false
+        }
+        
+        // Check against consolidated patterns for comprehensive filtering
+        return excludePatterns.any { pattern ->
+            folderName.matches(".*$pattern.*".toRegex(RegexOption.IGNORE_CASE))
+        }
+    }
     
     private fun getApiKeys(): List<String> {
         val settings = XmlTranslatorSettings.getInstance()
@@ -312,12 +458,18 @@ input: {
   "source_language": "en",
   "target_language": "vi",
   "strings": [
-    {"id": 1, "text": "Enable <b>Notifications</b> for continuous using when the app is closed."}
+    {
+      "id": 1,
+      "text": "Enable <b>Notifications</b> for continuous using when the app is closed."
+    }
   ]
 }
 output: {
   "translations": [
-    {"id": 1, "text": "Bật <b>Thông báo</b> của ứng dụng để tiếp tục sử dụng khi ứng dụng bị đóng."}
+    {
+      "id": 1,
+      "text": "Bật <b>Thông báo</b> của ứng dụng để tiếp tục sử dụng khi ứng dụng bị đóng."
+    }
   ]
 }
 
@@ -429,20 +581,40 @@ output: {
     
     private fun extractStringElements(document: Document): List<Pair<String, String>> {
         val stringElements = mutableListOf<Pair<String, String>>()
+        val excludedElements = mutableListOf<String>()
+        val nonTranslatableElements = mutableListOf<String>()
         val nodeList = document.getElementsByTagName("string")
         
         for (i in 0 until nodeList.length) {
             val element = nodeList.item(i) as Element
             val translatable = element.getAttribute("translatable")
             
-            if (translatable.isEmpty() || translatable.lowercase() != "false") {
+            if (translatable.isNotEmpty() && translatable.lowercase() == "false") {
+                val name = element.getAttribute("name")
+                if (name.isNotEmpty()) {
+                    nonTranslatableElements.add(name)
+                }
+            } else {
                 val name = element.getAttribute("name")
                 val text = element.textContent
                 
                 if (name.isNotEmpty() && text.isNotEmpty()) {
-                    stringElements.add(name to text)
+                    if (shouldExcludeString(name)) {
+                        excludedElements.add(name)
+                    } else {
+                        stringElements.add(name to text)
+                    }
                 }
             }
+        }
+        
+        // Simple summary
+        println("📊 Phân tích XML: ${stringElements.size} strings để dịch")
+        if (excludedElements.isNotEmpty()) {
+            println("🚫 Bỏ qua ${excludedElements.size} strings: ${excludedElements.take(3).joinToString(", ")}${if (excludedElements.size > 3) "..." else ""}")
+        }
+        if (nonTranslatableElements.isNotEmpty()) {
+            println("⏭️ Bỏ qua ${nonTranslatableElements.size} strings có translatable=\"false\"")
         }
         
         return stringElements
@@ -472,7 +644,6 @@ output: {
     }
     
     private fun addOrUpdateStringInXml(xmlFile: File, stringName: String, text: String) {
-        // Enhanced logic with proper line break detection
         val content = if (xmlFile.exists()) {
             xmlFile.readText()
         } else {
@@ -496,23 +667,16 @@ output: {
                 val beforeResources = content.substring(0, insertPosition)
                 val afterResources = content.substring(insertPosition)
                 
-                // Check if we need a newline before </resources>
-                val needsNewlineBeforeClosing = !beforeResources.endsWith("\n")
-                val needsNewlineAfterString = !beforeResources.trimEnd().endsWith("</string>")
-                
                 val newContent = when {
-                    // First string in empty resources
                     beforeResources.trim().endsWith("<resources>") -> {
                         beforeResources + "\n$stringElement\n$afterResources"
                     }
-                    // Add after existing strings
                     beforeResources.trimEnd().endsWith("</string>") -> {
-                        val lineBreak = if (needsNewlineBeforeClosing) "\n" else ""
+                        val lineBreak = if (!beforeResources.endsWith("\n")) "\n" else ""
                         beforeResources + "\n$stringElement$lineBreak$afterResources"
                     }
-                    // Other cases - ensure proper spacing
                     else -> {
-                        val lineBreak = if (needsNewlineBeforeClosing) "\n" else ""
+                        val lineBreak = if (!beforeResources.endsWith("\n")) "\n" else ""
                         beforeResources + "\n$stringElement$lineBreak$afterResources"
                     }
                 }

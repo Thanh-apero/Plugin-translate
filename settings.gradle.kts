@@ -1,1 +1,1 @@
-rootProject.name = "xml-translator-plugin"
+rootProject.name = "translate-strings"

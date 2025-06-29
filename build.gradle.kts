@@ -4,7 +4,7 @@ plugins {
     id("org.jetbrains.intellij") version "1.17.2"
 }
 
-group = "com.xmltranslator"
+group = "com.translatestrings"
 version = "0.0.1"
 
 repositories {
@@ -13,6 +13,14 @@ repositories {
 
 dependencies {
     implementation("com.google.code.gson:gson:2.10.1")
+}
+
+// Project information
+ext {
+    set("projectName", "Translate strings")
+    set("authorName", "Thanh Nguyen")
+    set("authorEmail", "thanhnguyen6702@gmail.com")
+    set("projectUrl", "https://github.com/thanhnguyen6702/translate-strings")
 }
 
 intellij {
