@@ -44,6 +44,7 @@
         <toolWindow id="XML Translator"
                     secondary="true"
                     anchor="right"
+                    icon="/icons/toolWindow.svg"
                     factoryClass="com.xmltranslator.ui.XmlTranslatorToolWindowFactory"/>
 
         <!-- Project service -->
