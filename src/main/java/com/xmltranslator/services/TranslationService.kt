@@ -499,10 +499,76 @@ output: {
     }
   ]
 }
+
+input: {
+  "source_language": "en",
+  "target_language": "vi",
+  "strings": [
+    {
+      "id": 1,
+      "text": "Set app <font color=\"#FF3E3E\"><b>PDF Reader</b></font> as the default PDF reader"
+    },
+    {
+      "id": 2,
+      "text": "Click <font color=\"#007AFF\"><b>Allow</b></font> to enable permissions"
+    }
+  ]
+}
+output: {
+  "translations": [
+    {
+      "id": 1,
+      "text": "Đặt ứng dụng <font color=\"#FF3E3E\"><b>PDF Reader</b></font> làm trình đọc PDF mặc định"
+    },
+    {
+      "id": 2,
+      "text": "Nhấn <font color=\"#007AFF\"><b>Cho phép</b></font> để bật quyền"
+    }
+  ]
+}
+
+input: {
+  "source_language": "en",
+  "target_language": "ko",
+  "strings": [
+    {
+      "id": 1,
+      "text": "Download <font color=\"#34C759\"><b>Premium</b></font> version for unlimited features"
+    },
+    {
+      "id": 2,
+      "text": "Status: <font color=\"#FF9500\"><b>Processing...</b></font>"
+    }
+  ]
+}
+output: {
+  "translations": [
+    {
+      "id": 1,
+      "text": "<font color=\"#34C759\"><b>프리미엄</b></font> 버전을 다운로드하여 무제한 기능을 이용하세요"
+    },
+    {
+      "id": 2,
+      "text": "상태: <font color=\"#FF9500\"><b>처리 중...</b></font>"
+    }
+  ]
+}
         """.trimIndent()
         
         val requestJson = gson.toJson(request)
-        return "$examples\n\ninput 2: $requestJson\noutput 2: "
+        
+        return """
+$examples
+
+IMPORTANT FORMATTING RULES:
+1. Always preserve HTML/XML tags exactly as they appear: <b>, </b>, <font>, </font>, etc.
+2. Keep all HTML attributes unchanged: color="#FF3E3E", style="...", etc.
+3. Only translate the actual text content, not the HTML structure
+4. Preserve all escape sequences: \n, \r, \t, \\, etc.
+5. Keep special characters and symbols: #, @, &, etc.
+
+input: $requestJson
+output:"""
     }
     
     private fun parseGeminiResponse(responseText: String): TranslationResponse {
@@ -637,10 +703,12 @@ output: {
     }
     
     private fun escapeXmlText(text: String): String {
+        // Minimal XML escaping - AI handles HTML formatting preservation via prompt
+        // Only escape the most basic XML entities that could break XML parsing
         return text
-            .replace("&", "&amp;")
-            .replace("'", "&apos;")
-            .replace("\"", "&quot;")
+            .replace(Regex("&(?![a-zA-Z0-9#]+;)"), "&amp;") // Only escape unescaped ampersands
+            .replace("'", "&apos;") // Escape single quotes
+        // Note: < > and " are preserved by AI via prompt instructions for HTML formatting
     }
     
     private fun addOrUpdateStringInXml(xmlFile: File, stringName: String, text: String) {
@@ -664,20 +732,21 @@ output: {
             // Add new string with proper formatting
             val insertPosition = content.lastIndexOf("</resources>")
             if (insertPosition != -1) {
-                val beforeResources = content.substring(0, insertPosition)
+                val beforeResources = content.substring(0, insertPosition).trimEnd()
                 val afterResources = content.substring(insertPosition)
                 
                 val newContent = when {
                     beforeResources.trim().endsWith("<resources>") -> {
-                        beforeResources + "\n$stringElement\n$afterResources"
+                        // First string in empty resources
+                        "$beforeResources\n$stringElement\n$afterResources"
                     }
-                    beforeResources.trimEnd().endsWith("</string>") -> {
-                        val lineBreak = if (!beforeResources.endsWith("\n")) "\n" else ""
-                        beforeResources + "\n$stringElement$lineBreak$afterResources"
+                    beforeResources.trim().endsWith("</string>") -> {
+                        // Adding after existing strings
+                        "$beforeResources\n$stringElement\n$afterResources"
                     }
                     else -> {
-                        val lineBreak = if (!beforeResources.endsWith("\n")) "\n" else ""
-                        beforeResources + "\n$stringElement$lineBreak$afterResources"
+                        // Fallback case
+                        "$beforeResources\n$stringElement\n$afterResources"
                     }
                 }
                 

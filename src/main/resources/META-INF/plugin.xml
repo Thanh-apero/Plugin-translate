@@ -1,8 +1,8 @@
 <idea-plugin>
     <id>com.translatestrings.plugin</id>
-    <name>Translate strings</name>
+    <name>Apero Translate strings</name>
     <vendor email="thanhnguyen6702@gmail.com" url="https://github.com/thanhnguyen6702">Thanh Nguyen</vendor>
-    <version>0.0.1</version>
+    <version>0.0.2</version>
     
     <!-- License information -->
     <license>MIT</license>

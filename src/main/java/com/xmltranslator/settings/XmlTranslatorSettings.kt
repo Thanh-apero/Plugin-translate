@@ -28,22 +28,24 @@ class XmlTranslatorSettings : PersistentStateComponent<XmlTranslatorSettings> {
     private fun getDefaultApiKeys(): List<String> {
         val keys = mutableListOf<String>()
         
+        // Check environment variables first
         System.getenv("GOOGLE_AI_API_KEY")?.let { key ->
-            if (key.isNotBlank()) keys.add(key)
+            if (key.isNotBlank() && isValidApiKey(key)) keys.add(key)
         }
         
         System.getenv("GOOGLE_AI_API_KEY_1")?.let { key ->
-            if (key.isNotBlank()) keys.add(key)
+            if (key.isNotBlank() && isValidApiKey(key)) keys.add(key)
         }
         
         System.getenv("GOOGLE_AI_API_KEY_2")?.let { key ->
-            if (key.isNotBlank()) keys.add(key)
+            if (key.isNotBlank() && isValidApiKey(key)) keys.add(key)
         }
         
         System.getProperty("google.ai.api.key")?.let { key ->
-            if (key.isNotBlank() && !keys.contains(key)) keys.add(key)
+            if (key.isNotBlank() && isValidApiKey(key) && !keys.contains(key)) keys.add(key)
         }
         
+        // Load from properties file
         if (keys.isEmpty()) {
             try {
                 val properties = java.util.Properties()
@@ -52,19 +54,28 @@ class XmlTranslatorSettings : PersistentStateComponent<XmlTranslatorSettings> {
                     properties.load(stream)
                     
                     properties.getProperty("google.ai.api.key.1")?.let { key ->
-                        if (key.isNotBlank()) keys.add(key)
+                        if (key.isNotBlank() && isValidApiKey(key)) keys.add(key)
                     }
                     
                     properties.getProperty("google.ai.api.key.2")?.let { key ->
-                        if (key.isNotBlank()) keys.add(key)
+                        if (key.isNotBlank() && isValidApiKey(key)) keys.add(key)
                     }
                 }
+                
+                if (keys.isEmpty()) {
+                    println("⚠️ default-keys.properties chứa placeholder keys, cần thay thế bằng API keys thực tế")
+                }
             } catch (e: Exception) {
-                println("Could not load default API keys: ${e.message}")
+                println("⚠️ Không thể load default API keys: ${e.message}")
             }
         }
         
         return keys
+    }
+    
+    private fun isValidApiKey(key: String): Boolean {
+        // Check if it's a valid Google AI API key format
+        return key.startsWith("AIzaSy") && key.length >= 35 && !key.contains("REPLACE_WITH") && !key.contains("YOUR_ACTUAL")
     }
     
     fun getValidApiKeys(): List<String> {
@@ -73,6 +84,7 @@ class XmlTranslatorSettings : PersistentStateComponent<XmlTranslatorSettings> {
         if (useDefaultKeys) {
             val defaultKeys = getDefaultApiKeys()
             allKeys.addAll(defaultKeys)
+            println("🔑 Loaded ${defaultKeys.size} default API keys")
         }
         
         val userKeys = apiKeys.filter { it.isNotBlank() }
@@ -82,10 +94,26 @@ class XmlTranslatorSettings : PersistentStateComponent<XmlTranslatorSettings> {
             }
         }
         
-        if (allKeys.isEmpty()) {
-            throw Exception("No API keys found. Please set environment variable GOOGLE_AI_API_KEY or configure keys in settings.")
+        if (userKeys.isNotEmpty()) {
+            println("🔑 Loaded ${userKeys.size} user API keys")
         }
         
+        if (allKeys.isEmpty()) {
+            val errorMessage = buildString {
+                appendLine("❌ Không tìm thấy API key nào!")
+                appendLine()
+                appendLine("Hướng dẫn khắc phục:")
+                appendLine("1. Lấy API key miễn phí tại: https://aistudio.google.com/app/apikey")
+                appendLine("2. Vào Settings > Tools > XML Translator")
+                appendLine("3. Thêm API key vào mục 'Additional API Keys'")
+                appendLine()
+                appendLine("Hoặc set environment variable:")
+                appendLine("export GOOGLE_AI_API_KEY=your_api_key_here")
+            }
+            throw Exception(errorMessage)
+        }
+        
+        println("✅ Tổng cộng ${allKeys.size} API keys sẵn sàng")
         return allKeys
     }
     
