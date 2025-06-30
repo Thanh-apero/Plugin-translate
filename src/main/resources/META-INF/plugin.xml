@@ -27,7 +27,7 @@
     ]]></description>
 
     <change-notes><![CDATA[
-        <h3>Version 0.0.1</h3>
+        <h3>Version 0.0.2</h3>
         <ul>
             <li>🚀 <strong>Initial Release</strong> - First version of Translate strings plugin</li>
             <li>🌍 <strong>Multi-language Translation</strong> - Support for 25+ languages</li>

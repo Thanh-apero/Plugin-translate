@@ -10,11 +10,14 @@ import com.intellij.ui.table.JBTable
 import com.intellij.util.ui.JBUI
 import com.xmltranslator.services.TranslationService
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
+import java.util.concurrent.CancellationException
 import java.awt.*
 import java.awt.event.ActionEvent
 import java.awt.event.ActionListener
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import java.awt.event.MouseWheelEvent
 import java.awt.event.MouseMotionAdapter
 // Removed unused import
 import java.io.File
@@ -27,6 +30,16 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
     
     private val translationService = project.service<TranslationService>()
     private val executorService = Executors.newSingleThreadExecutor()
+    
+    // Translation state tracking
+    private var isFileTranslating = false
+    private var isStringTranslating = false
+    private var currentFileTask: Future<*>? = null
+    private var currentStringTask: Future<*>? = null
+    
+    // UI components for translation control
+    private lateinit var fileTranslateButton: JButton
+    private lateinit var stringTranslateButton: JButton
     
     // Hover state for language list
     private var hoveredIndex = -1
@@ -51,6 +64,10 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
     init {
         setupUI()
         autoDetectResourceDirectory()
+        
+        // Ensure buttons have correct initial state
+        updateFileTranslationUI()
+        updateStringTranslationUI()
     }
     
     private fun setupUI() {
@@ -119,7 +136,12 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         langInputPanel.add(removeLangButton)
         
         langPanel.add(langInputPanel, BorderLayout.NORTH)
-        langPanel.add(JScrollPane(languageList), BorderLayout.CENTER)
+        val languageScrollPane = JScrollPane(languageList)
+        
+        // Setup smart scroll behavior for language list
+        setupSmartScrollBehavior(languageList, languageScrollPane)
+        
+        langPanel.add(languageScrollPane, BorderLayout.CENTER)
         
         // Common languages buttons
         val commonLangPanel = JPanel(GridLayout(6, 4, 5, 5))
@@ -155,7 +177,8 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
             commonLangPanel.add(button)
         }
         
-        langPanel.add(JScrollPane(commonLangPanel), BorderLayout.SOUTH)
+        val commonLangScrollPane = JScrollPane(commonLangPanel)
+        langPanel.add(commonLangScrollPane, BorderLayout.SOUTH)
         
         panel.add(langPanel, BorderLayout.CENTER)
         
@@ -164,11 +187,16 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         
         fileStatusArea.isEditable = false
         fileStatusArea.rows = 6
-        bottomPanel.add(JScrollPane(fileStatusArea), BorderLayout.CENTER)
+        val fileStatusScrollPane = JScrollPane(fileStatusArea)
         
-        val translateButton = JButton("Translate All")
-        translateButton.addActionListener { translateFile() }
-        bottomPanel.add(translateButton, BorderLayout.SOUTH)
+        // Setup smart scroll behavior for file status area
+        setupSmartScrollBehavior(fileStatusArea, fileStatusScrollPane)
+        
+        bottomPanel.add(fileStatusScrollPane, BorderLayout.CENTER)
+        
+        fileTranslateButton = JButton("▶️ Translate All")
+        fileTranslateButton.addActionListener { handleFileTranslation() }
+        bottomPanel.add(fileTranslateButton, BorderLayout.SOUTH)
         
         panel.add(bottomPanel, BorderLayout.SOUTH)
         
@@ -229,6 +257,10 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         val bulkScrollPane = JScrollPane(bulkTextArea)
         bulkScrollPane.preferredSize = Dimension(700, 140)
         bulkScrollPane.border = BorderFactory.createLoweredBevelBorder()
+        
+        // Setup smart scroll behavior for bulk text area
+        setupSmartScrollBehavior(bulkTextArea, bulkScrollPane)
+        
         bulkPanel.add(bulkScrollPane, BorderLayout.CENTER)
         
         // Parse button with better styling
@@ -267,6 +299,10 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         val tableScrollPane = JScrollPane(stringTable)
         tableScrollPane.preferredSize = Dimension(700, 180)
         tableScrollPane.border = BorderFactory.createLoweredBevelBorder()
+        
+        // Setup smart scroll behavior for string table
+        setupSmartScrollBehavior(stringTable, tableScrollPane)
+        
         tablePanel.add(tableScrollPane, BorderLayout.CENTER)
         
         // Table action buttons with icons
@@ -342,6 +378,10 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         val valuesScrollPane = JScrollPane(valuesList)
         valuesScrollPane.preferredSize = Dimension(700, 100)
         valuesScrollPane.border = BorderFactory.createLoweredBevelBorder()
+        
+        // Setup smart scroll behavior for values list
+        setupSmartScrollBehavior(valuesList, valuesScrollPane)
+        
         valuesPanel.add(valuesScrollPane, BorderLayout.CENTER)
         
         // Enhanced values list with hover delete functionality
@@ -385,21 +425,25 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         val statusScrollPane = JScrollPane(stringStatusArea)
         statusScrollPane.preferredSize = Dimension(700, 150)
         statusScrollPane.border = BorderFactory.createLoweredBevelBorder()
+        
+        // Setup smart scroll behavior for status area
+        setupSmartScrollBehavior(stringStatusArea, statusScrollPane)
+        
         statusFrame.add(statusScrollPane, BorderLayout.CENTER)
         
         // Action buttons panel with enhanced styling
         val actionPanel = JPanel(FlowLayout(FlowLayout.CENTER))
         actionPanel.border = BorderFactory.createEmptyBorder(10, 0, 5, 0)
         
-        val translateButton = JButton("🌍 Translate All Strings")
-        translateButton.preferredSize = Dimension(180, 35)
-        translateButton.font = java.awt.Font(java.awt.Font.SANS_SERIF, java.awt.Font.BOLD, 12)
+        stringTranslateButton = JButton("🌍 Translate All Strings")
+        stringTranslateButton.preferredSize = Dimension(180, 35)
+        stringTranslateButton.font = java.awt.Font(java.awt.Font.SANS_SERIF, java.awt.Font.BOLD, 12)
         // Use more subtle IDE-appropriate colors
-        translateButton.background = java.awt.Color(59, 142, 234) // IntelliJ blue
-        translateButton.foreground = java.awt.Color.WHITE
-        translateButton.isFocusPainted = false
-        translateButton.addActionListener { translateStrings() }
-        actionPanel.add(translateButton)
+        stringTranslateButton.background = java.awt.Color(59, 142, 234) // IntelliJ blue
+        stringTranslateButton.foreground = java.awt.Color.WHITE
+        stringTranslateButton.isFocusPainted = false
+        stringTranslateButton.addActionListener { handleStringTranslation() }
+        actionPanel.add(stringTranslateButton)
         
         val clearStatusButton = JButton("🗑️ Clear Status")
         clearStatusButton.preferredSize = Dimension(120, 35)
@@ -745,6 +789,10 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         textArea.lineWrap = true
         textArea.wrapStyleWord = true
         val scrollPane = JScrollPane(textArea)
+        
+        // Setup smart scroll behavior for dialog text area
+        setupSmartScrollBehavior(textArea, scrollPane)
+        
         panel.add(scrollPane, gbc)
         
         dialog.add(panel, BorderLayout.CENTER)
@@ -795,9 +843,12 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
             return
         }
         
+        // Set translation state
+        isFileTranslating = true
+        updateFileTranslationUI()
         fileStatusArea.text = ""
         
-        executorService.submit {
+        currentFileTask = executorService.submit {
             try {
                 SwingUtilities.invokeLater {
                     fileStatusArea.append("Starting translation using Google Generative AI...\n")
@@ -815,11 +866,25 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
                     }
                 }
                 
+                // Completed successfully
+                SwingUtilities.invokeLater {
+                    fileStatusArea.append("✅ Translation completed successfully!\n")
+                }
+                
             } catch (e: Exception) {
                 SwingUtilities.invokeLater {
-                    fileStatusArea.append("Error: ${e.message}\n")
-                    Messages.showErrorDialog(project, "Translation failed: ${e.message}", "Error")
+                    if (e is CancellationException) {
+                        fileStatusArea.append("⏹️ Translation was cancelled\n")
+                    } else {
+                        fileStatusArea.append("Error: ${e.message}\n")
+                        Messages.showErrorDialog(project, "Translation failed: ${e.message}", "Error")
+                    }
                 }
+            } finally {
+                // Reset translation state
+                isFileTranslating = false
+                updateFileTranslationUI()
+                currentFileTask = null
             }
         }
     }
@@ -843,9 +908,12 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
             return
         }
         
+        // Set translation state
+        isStringTranslating = true
+        updateStringTranslationUI()
         stringStatusArea.text = ""
         
-        executorService.submit {
+        currentStringTask = executorService.submit {
             try {
                 SwingUtilities.invokeLater {
                     stringStatusArea.append("Starting batch string translation using Google Generative AI...\n")
@@ -880,14 +948,23 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
                 )
                 
                 SwingUtilities.invokeLater {
-                    stringStatusArea.append("All strings processed successfully using batch processing!\n")
+                    stringStatusArea.append("✅ All strings processed successfully using batch processing!\n")
                     clearAllStrings()
                 }
                 
             } catch (e: Exception) {
                 SwingUtilities.invokeLater {
-                    stringStatusArea.append("Error: ${e.message}\n")
+                    if (e is CancellationException) {
+                        stringStatusArea.append("⏹️ Translation was cancelled\n")
+                    } else {
+                        stringStatusArea.append("Error: ${e.message}\n")
+                    }
                 }
+            } finally {
+                // Reset translation state
+                isStringTranslating = false
+                updateStringTranslationUI()
+                currentStringTask = null
             }
         }
     }
@@ -1000,6 +1077,101 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
             }
         } catch (e: Exception) {
             println("DEBUG: Could not switch tab: ${e.message}")
+        }
+    }
+
+    /**
+     * Setup optimized scroll behavior for components
+     * Forward scroll events to parent when component doesn't need them
+     * Based on standard pattern from Java Swing Tips
+     */
+    private fun setupSmartScrollBehavior(component: JComponent, scrollPane: JScrollPane) {
+        scrollPane.addMouseWheelListener { e ->
+            val dir = e.wheelRotation
+            val model = scrollPane.verticalScrollBar.model
+            val ext = model.extent
+            val min = model.minimum
+            val max = model.maximum
+            val value = model.value
+            
+            // Check if we've hit the scroll limits
+            val atMaxAndScrollingDown = (value + ext >= max && dir > 0)
+            val atMinAndScrollingUp = (value <= min && dir < 0)
+            val isEmptyTextArea = component is JTextArea && component.document.length == 0
+            
+            if (atMaxAndScrollingDown || atMinAndScrollingUp || isEmptyTextArea) {
+                // Find parent scroll pane and forward event
+                var parent = scrollPane.parent
+                while (parent != null) {
+                    if (parent is JScrollPane) {
+                        parent.dispatchEvent(SwingUtilities.convertMouseEvent(scrollPane, e, parent))
+                        break
+                    } else if (parent is JComponent) {
+                        parent.dispatchEvent(SwingUtilities.convertMouseEvent(scrollPane, e, parent))
+                        break
+                    }
+                    parent = parent.parent
+                }
+            }
+        }
+    }
+
+    // Translation control methods
+    private fun handleFileTranslation() {
+        if (isFileTranslating) {
+            stopFileTranslation()
+        } else {
+            translateFile()
+        }
+    }
+    
+    private fun handleStringTranslation() {
+        if (isStringTranslating) {
+            stopStringTranslation()
+        } else {
+            translateStrings()
+        }
+    }
+    
+    private fun updateFileTranslationUI() {
+        SwingUtilities.invokeLater {
+            if (isFileTranslating) {
+                fileTranslateButton.text = "⏹️ Stop Translation"
+                fileTranslateButton.background = java.awt.Color(220, 53, 69) // Red color
+            } else {
+                fileTranslateButton.text = "▶️ Translate All"
+                fileTranslateButton.background = UIManager.getColor("Button.background")
+            }
+        }
+    }
+    
+    private fun updateStringTranslationUI() {
+        SwingUtilities.invokeLater {
+            if (isStringTranslating) {
+                stringTranslateButton.text = "⏹️ Stop Translation"
+                stringTranslateButton.background = java.awt.Color(220, 53, 69) // Red color
+            } else {
+                stringTranslateButton.text = "🌍 Translate All Strings"
+                stringTranslateButton.background = java.awt.Color(59, 142, 234) // IntelliJ blue
+            }
+        }
+    }
+    
+    private fun stopFileTranslation() {
+        currentFileTask?.cancel(true)
+        isFileTranslating = false
+        updateFileTranslationUI()
+        SwingUtilities.invokeLater {
+            fileStatusArea.append("❌ Translation cancelled by user\n")
+        }
+    }
+    
+    private fun stopStringTranslation() {
+        currentStringTask?.cancel(true)
+        isStringTranslating = false
+        updateStringTranslationUI()
+        SwingUtilities.invokeLater {
+            stringStatusArea.append("❌ Translation cancelled by user\n")
         }
     }
 }

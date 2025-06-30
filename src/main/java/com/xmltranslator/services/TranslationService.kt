@@ -724,9 +724,10 @@ output:"""
         val stringElement = "    <string name=\"$stringName\">$escapedText</string>"
         
         if (content.contains("name=\"$stringName\"")) {
-            // Update existing string
+            // Update existing string - Fix for "Illegal group reference" error
             val regex = """    <string name="$stringName"[^>]*>.*?</string>""".toRegex(RegexOption.DOT_MATCHES_ALL)
-            val updatedContent = content.replace(regex, stringElement)
+            // Use literal replacement to avoid issues with $ characters in replacement string
+            val updatedContent = regex.replace(content) { stringElement }
             xmlFile.writeText(updatedContent)
         } else {
             // Add new string with proper formatting
