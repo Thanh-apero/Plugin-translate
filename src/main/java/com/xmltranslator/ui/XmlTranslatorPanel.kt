@@ -9,6 +9,7 @@ import com.intellij.ui.components.*
 import com.intellij.ui.table.JBTable
 import com.intellij.util.ui.JBUI
 import com.xmltranslator.services.TranslationService
+import com.xmltranslator.services.ProjectScanner
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.CancellationException
@@ -44,13 +45,14 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
     // Hover state for language list
     private var hoveredIndex = -1
     
-    // File Translation Tab Components
-    private val inputFileField = JBTextField()
-    private val outputDirField = JBTextField()
+    // File Translation Tab Components - Updated for module-based translation
+    private val moduleListModel = DefaultListModel<ProjectScanner.AndroidModule>()
+    private val moduleList = JBList(moduleListModel)
     private val languageListModel = DefaultListModel<String>()
     private val languageList = JBList(languageListModel)
     private val languageInput = JBTextField()
     private val fileStatusArea = JBTextArea()
+    private var selectedModule: ProjectScanner.AndroidModule? = null
     
     // String Addition Tab Components - Updated for better layout
     private val resourceDirField = JBTextField()
@@ -60,10 +62,17 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
     private val stringTableModel = DefaultTableModel(arrayOf("Name", "Text"), 0)
     private val stringTable = JBTable(stringTableModel)
     private val bulkTextArea = JBTextArea(6, 50) // For bulk XML input
+    private lateinit var moduleDropdown: JComboBox<ProjectScanner.AndroidModule>
     
     init {
         setupUI()
         autoDetectResourceDirectory()
+        loadAvailableModules()
+        
+        // Load modules for string addition dropdown
+        SwingUtilities.invokeLater {
+            updateStringModuleSelection()
+        }
         
         // Ensure buttons have correct initial state
         updateFileTranslationUI()
@@ -89,35 +98,69 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
     private fun createFileTranslationPanel(): JPanel {
         val panel = JPanel(BorderLayout())
         
-        // Input section
-        val inputPanel = JPanel(GridBagLayout())
-        val gbc = GridBagConstraints()
+        // Module selection section
+        val modulePanel = JPanel(BorderLayout())
+        modulePanel.border = BorderFactory.createTitledBorder("📦 Select Module to Translate")
         
-        // Input file
-        gbc.gridx = 0; gbc.gridy = 0; gbc.anchor = GridBagConstraints.WEST
-        inputPanel.add(JLabel("Input XML file:"), gbc)
+        // Module selection with info
+        val moduleTopPanel = JPanel(FlowLayout(FlowLayout.LEFT))
+        val infoLabel = JBLabel("<html><i>Select an Android module with strings.xml to translate</i></html>")
+        moduleTopPanel.add(infoLabel)
         
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
-        inputPanel.add(inputFileField, gbc)
+        val refreshModulesButton = JButton("🔄 Refresh Modules")
+        refreshModulesButton.addActionListener { loadAvailableModules() }
+        moduleTopPanel.add(refreshModulesButton)
         
-        gbc.gridx = 2; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
-        val browseInputButton = JButton("Browse")
-        browseInputButton.addActionListener { browseInputFile() }
-        inputPanel.add(browseInputButton, gbc)
+        val showProjectInfoButton = JButton("ℹ️ Project Info")
+        showProjectInfoButton.addActionListener { showProjectInfo() }
+        moduleTopPanel.add(showProjectInfoButton)
         
-        // Output directory
-        gbc.gridx = 0; gbc.gridy = 1; gbc.anchor = GridBagConstraints.WEST
-        inputPanel.add(JLabel("Output directory:"), gbc)
+        modulePanel.add(moduleTopPanel, BorderLayout.NORTH)
         
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
-        inputPanel.add(outputDirField, gbc)
+        // Module list
+        moduleList.selectionMode = ListSelectionModel.SINGLE_SELECTION
+        moduleList.font = java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 12)
         
-        gbc.gridx = 2; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
-        val browseOutputButton = JButton("Browse")
-        browseOutputButton.addActionListener { browseOutputDir() }
-        inputPanel.add(browseOutputButton, gbc)
+        // Custom cell renderer for better display
+        moduleList.cellRenderer = object : DefaultListCellRenderer() {
+            override fun getListCellRendererComponent(
+                list: JList<*>?, value: Any?, index: Int, isSelected: Boolean, cellHasFocus: Boolean
+            ): Component {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
+                
+                if (value is ProjectScanner.AndroidModule) {
+                    text = value.toString()
+                    toolTipText = """
+                        <html>
+                        <b>Module:</b> ${value.name}<br>
+                        <b>Path:</b> ${value.path}<br>
+                        <b>Res dir:</b> ${value.resDir.path}<br>
+                        <b>Values folders:</b> ${value.availableValuesFolders.joinToString(", ")}<br>
+                        <b>Strings file:</b> ${if (value.hasStringsFile) "✅ Found" else "❌ Missing"}
+                        </html>
+                    """.trimIndent()
+                }
+                
+                return this
+            }
+        }
         
-        panel.add(inputPanel, BorderLayout.NORTH)
+        moduleList.addListSelectionListener { event ->
+            if (!event.valueIsAdjusting) {
+                this@XmlTranslatorPanel.selectedModule = moduleList.selectedValue
+                updateFileTranslationUI()
+            }
+        }
+        
+        val moduleScrollPane = JScrollPane(moduleList)
+        moduleScrollPane.preferredSize = Dimension(700, 120)
+        moduleScrollPane.border = BorderFactory.createLoweredBevelBorder()
+        
+        setupSmartScrollBehavior(moduleList, moduleScrollPane)
+        
+        modulePanel.add(moduleScrollPane, BorderLayout.CENTER)
+        
+        panel.add(modulePanel, BorderLayout.NORTH)
         
         // Language selection
         val langPanel = JPanel(BorderLayout())
@@ -194,8 +237,8 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         
         bottomPanel.add(fileStatusScrollPane, BorderLayout.CENTER)
         
-        fileTranslateButton = JButton("▶️ Translate All")
-        fileTranslateButton.addActionListener { handleFileTranslation() }
+        fileTranslateButton = JButton("🌍 Translate Module")
+        fileTranslateButton.addActionListener { handleModuleTranslation() }
         bottomPanel.add(fileTranslateButton, BorderLayout.SOUTH)
         
         panel.add(bottomPanel, BorderLayout.SOUTH)
@@ -333,9 +376,57 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
     
     private fun createResourceDirectorySection(): JPanel {
         val dirFrame = JPanel(BorderLayout())
-        dirFrame.border = BorderFactory.createTitledBorder("📁 Output Directory")
+        dirFrame.border = BorderFactory.createTitledBorder("📦 Select Target Module")
         
-        // Directory selection with enhanced styling
+        // Module selection for String Addition
+        val moduleSelectionPanel = JPanel(BorderLayout())
+        
+        val moduleTopPanel = JPanel(FlowLayout(FlowLayout.LEFT))
+        val moduleLabel = JBLabel("<html><i>Select module to add strings to:</i></html>")
+        moduleTopPanel.add(moduleLabel)
+        
+        val refreshModulesForStringButton = JButton("🔄 Refresh")
+        refreshModulesForStringButton.addActionListener { 
+            loadAvailableModules()
+            updateStringModuleSelection()
+        }
+        moduleTopPanel.add(refreshModulesForStringButton)
+        
+        moduleSelectionPanel.add(moduleTopPanel, BorderLayout.NORTH)
+        
+        // Module dropdown
+        val moduleDropdown = JComboBox<ProjectScanner.AndroidModule>()
+        moduleDropdown.font = java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 11)
+        moduleDropdown.renderer = object : DefaultListCellRenderer() {
+            override fun getListCellRendererComponent(
+                list: JList<*>?, value: Any?, index: Int, isSelected: Boolean, cellHasFocus: Boolean
+            ): Component {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
+                
+                if (value is ProjectScanner.AndroidModule) {
+                    text = "${value.name} ${if (value.hasStringsFile) "✅" else "⚠️"}"
+                    toolTipText = "${value.resDir.path}"
+                }
+                
+                return this
+            }
+        }
+        
+        moduleDropdown.addActionListener { event ->
+            val selectedStringModule = moduleDropdown.selectedItem as? ProjectScanner.AndroidModule
+            if (selectedStringModule != null) {
+                resourceDirField.text = selectedStringModule.resDir.path
+                updateValuesFolders(selectedStringModule.resDir.path)
+                
+                stringStatusArea.append("📦 Chọn module: ${selectedStringModule.name}\n")
+                stringStatusArea.append("📂 Resource dir: ${selectedStringModule.resDir.path}\n")
+            }
+        }
+        
+        moduleSelectionPanel.add(moduleDropdown, BorderLayout.CENTER)
+        dirFrame.add(moduleSelectionPanel, BorderLayout.NORTH)
+        
+        // Legacy resource directory field (read-only, for info)
         val dirInputPanel = JPanel(GridBagLayout())
         val gbc = GridBagConstraints()
         
@@ -346,6 +437,8 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
         resourceDirField.preferredSize = Dimension(450, 28)
         resourceDirField.font = java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 11)
+        resourceDirField.isEditable = false
+        resourceDirField.background = UIManager.getColor("TextField.inactiveBackground")
         dirInputPanel.add(resourceDirField, gbc)
         
         gbc.gridx = 2; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
@@ -354,18 +447,10 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         browseResourceButton.addActionListener { browseResourceDir() }
         dirInputPanel.add(browseResourceButton, gbc)
         
-        gbc.gridx = 3
-        val autoDetectButton = JButton("🔍 Auto Detect")
-        autoDetectButton.preferredSize = Dimension(110, 28)
-        autoDetectButton.addActionListener { 
-            val dirPath = resourceDirField.text.trim()
-            if (dirPath.isNotEmpty()) {
-                updateValuesFolders(dirPath)
-            }
-        }
-        dirInputPanel.add(autoDetectButton, gbc)
+        // Store dropdown reference for later use
+        this.moduleDropdown = moduleDropdown
         
-        dirFrame.add(dirInputPanel, BorderLayout.NORTH)
+        dirFrame.add(dirInputPanel, BorderLayout.CENTER)
         
         // Values folders selection with enhanced styling
         val valuesPanel = JPanel(BorderLayout())
@@ -542,25 +627,15 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         }
     }
     
+    // Deprecated - kept for compatibility
+    @Deprecated("Use module-based translation instead")
     private fun browseInputFile() {
-        val descriptor = FileChooserDescriptor(true, false, false, false, false, false)
-        descriptor.withFileFilter { it.extension == "xml" }
-        descriptor.title = "Select XML File"
-        
-        val file = FileChooser.chooseFile(descriptor, project, null)
-        file?.let {
-            inputFileField.text = it.path
-        }
+        // Legacy method - no longer used in new UI
     }
     
+    @Deprecated("Use module-based translation instead") 
     private fun browseOutputDir() {
-        val descriptor = FileChooserDescriptor(false, true, false, false, false, false)
-        descriptor.title = "Select Output Directory"
-        
-        val file = FileChooser.chooseFile(descriptor, project, null)
-        file?.let {
-            outputDirField.text = it.path
-        }
+        // Legacy method - no longer used in new UI
     }
     
     private fun browseResourceDir() {
@@ -825,68 +900,10 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         dialog.isVisible = true
     }
     
+    @Deprecated("Use translateModule() instead")
     private fun translateFile() {
-        val inputPath = inputFileField.text.trim()
-        val outputPath = outputDirField.text.trim()
-        val languages = (0 until languageListModel.size()).map { languageListModel.getElementAt(it) }
-        
-        if (inputPath.isEmpty() || outputPath.isEmpty() || languages.isEmpty()) {
-            Messages.showWarningDialog(project, "Please fill in all fields and add languages!", "Warning")
-            return
-        }
-        
-        val inputFile = File(inputPath)
-        val outputDir = File(outputPath)
-        
-        if (!inputFile.exists()) {
-            Messages.showErrorDialog(project, "Input file does not exist!", "Error")
-            return
-        }
-        
-        // Set translation state
-        isFileTranslating = true
-        updateFileTranslationUI()
-        fileStatusArea.text = ""
-        
-        currentFileTask = executorService.submit {
-            try {
-                SwingUtilities.invokeLater {
-                    fileStatusArea.append("Starting translation using Google Generative AI...\n")
-                }
-                
-                // Use the real translation service
-                translationService.translateXmlFile(
-                    inputFile = inputFile,
-                    outputDir = outputDir,
-                    targetLanguages = languages
-                ) { progress ->
-                    SwingUtilities.invokeLater {
-                        fileStatusArea.append("$progress\n")
-                        fileStatusArea.caretPosition = fileStatusArea.document.length
-                    }
-                }
-                
-                // Completed successfully
-                SwingUtilities.invokeLater {
-                    fileStatusArea.append("✅ Translation completed successfully!\n")
-                }
-                
-            } catch (e: Exception) {
-                SwingUtilities.invokeLater {
-                    if (e is CancellationException) {
-                        fileStatusArea.append("⏹️ Translation was cancelled\n")
-                    } else {
-                        fileStatusArea.append("Error: ${e.message}\n")
-                        Messages.showErrorDialog(project, "Translation failed: ${e.message}", "Error")
-                    }
-                }
-            } finally {
-                // Reset translation state
-                isFileTranslating = false
-                updateFileTranslationUI()
-                currentFileTask = null
-            }
-        }
+        // Legacy method - redirects to module translation
+        translateModule()
     }
     
     private fun translateStrings() {
@@ -1133,17 +1150,7 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         }
     }
     
-    private fun updateFileTranslationUI() {
-        SwingUtilities.invokeLater {
-            if (isFileTranslating) {
-                fileTranslateButton.text = "⏹️ Stop Translation"
-                fileTranslateButton.background = java.awt.Color(220, 53, 69) // Red color
-            } else {
-                fileTranslateButton.text = "▶️ Translate All"
-                fileTranslateButton.background = UIManager.getColor("Button.background")
-            }
-        }
-    }
+
     
     private fun updateStringTranslationUI() {
         SwingUtilities.invokeLater {
@@ -1172,6 +1179,172 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         updateStringTranslationUI()
         SwingUtilities.invokeLater {
             stringStatusArea.append("❌ Translation cancelled by user\n")
+        }
+    }
+    
+    // New module-based methods
+    private fun loadAvailableModules() {
+        try {
+            val modules = translationService.getAvailableModules()
+            moduleListModel.clear()
+            
+            for (module in modules) {
+                moduleListModel.addElement(module)
+            }
+            
+            fileStatusArea.append("🔍 Tìm thấy ${modules.size} module(s) có thư mục values\n")
+            
+            if (modules.isEmpty()) {
+                fileStatusArea.append("❌ Không tìm thấy module nào có cấu trúc Android\n")
+                fileStatusArea.append("💡 Đảm bảo project có cấu trúc: module/src/main/res/values/\n")
+            } else {
+                fileStatusArea.append("✅ Chọn module để bắt đầu dịch\n")
+                // Auto-select first valid module with strings.xml
+                val firstValidModuleForFile = modules.firstOrNull { it.hasStringsFile }
+                if (firstValidModuleForFile != null) {
+                    moduleList.setSelectedValue(firstValidModuleForFile, true)
+                    this.selectedModule = firstValidModuleForFile
+                }
+            }
+        } catch (e: Exception) {
+            fileStatusArea.append("❌ Lỗi khi scan modules: ${e.message}\n")
+        }
+    }
+    
+    private fun showProjectInfo() {
+        val projectInfo = translationService.getProjectInfo()
+        val dialog = JDialog()
+        dialog.title = "📦 Project Information"
+        dialog.modalityType = Dialog.ModalityType.APPLICATION_MODAL
+        dialog.layout = BorderLayout()
+        
+        val textArea = JBTextArea(projectInfo)
+        textArea.isEditable = false
+        textArea.font = java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 12)
+        textArea.caretPosition = 0
+        
+        val scrollPane = JScrollPane(textArea)
+        scrollPane.preferredSize = Dimension(600, 400)
+        
+        dialog.add(scrollPane, BorderLayout.CENTER)
+        
+        val closeButton = JButton("✅ Close")
+        closeButton.addActionListener { dialog.dispose() }
+        val buttonPanel = JPanel(FlowLayout())
+        buttonPanel.add(closeButton)
+        
+        dialog.add(buttonPanel, BorderLayout.SOUTH)
+        dialog.pack()
+        dialog.setLocationRelativeTo(this)
+        dialog.isVisible = true
+    }
+    
+    private fun handleModuleTranslation() {
+        if (isFileTranslating) {
+            stopFileTranslation()
+        } else {
+            translateModule()
+        }
+    }
+    
+    private fun translateModule() {
+        val module = selectedModule
+        val languages = (0 until languageListModel.size()).map { languageListModel.getElementAt(it) }
+        
+        if (module == null) {
+            Messages.showWarningDialog(project, "Vui lòng chọn một module để dịch!", "Warning")
+            return
+        }
+        
+        if (!module.hasStringsFile) {
+            Messages.showWarningDialog(project, "Module được chọn không có file strings.xml!", "Warning")  
+            return
+        }
+        
+        if (languages.isEmpty()) {
+            Messages.showWarningDialog(project, "Vui lòng thêm ít nhất một ngôn ngữ để dịch!", "Warning")
+            return
+        }
+        
+        // Set translation state
+        isFileTranslating = true
+        updateFileTranslationUI()
+        fileStatusArea.text = ""
+        
+        currentFileTask = executorService.submit {
+            try {
+                SwingUtilities.invokeLater {
+                    fileStatusArea.append("🚀 Bắt đầu dịch module sử dụng Google Generative AI...\n")
+                }
+                
+                // Use the module translation service
+                translationService.translateModule(
+                    module = module,
+                    targetLanguages = languages
+                ) { progress ->
+                    SwingUtilities.invokeLater {
+                        fileStatusArea.append("$progress\n")
+                        fileStatusArea.caretPosition = fileStatusArea.document.length
+                    }
+                }
+                
+                // Completed successfully
+                SwingUtilities.invokeLater {
+                    fileStatusArea.append("🎉 Dịch module hoàn tất thành công!\n")
+                }
+                
+            } catch (e: Exception) {
+                SwingUtilities.invokeLater {
+                    if (e is CancellationException) {
+                        fileStatusArea.append("⏹️ Việc dịch đã bị hủy\n")
+                    } else {
+                        fileStatusArea.append("❌ Lỗi: ${e.message}\n")
+                        Messages.showErrorDialog(project, "Dịch thất bại: ${e.message}", "Error")
+                    }
+                }
+            } finally {
+                // Reset translation state
+                isFileTranslating = false
+                updateFileTranslationUI()
+                currentFileTask = null
+            }
+        }
+    }
+    
+    private fun updateFileTranslationUI() {
+        SwingUtilities.invokeLater {
+            val hasValidModule = selectedModule?.hasStringsFile == true
+            val hasLanguages = languageListModel.size() > 0
+            
+            if (isFileTranslating) {
+                fileTranslateButton.text = "⏹️ Dừng dịch"
+                fileTranslateButton.background = java.awt.Color(220, 53, 69) // Red color
+                fileTranslateButton.isEnabled = true
+            } else {
+                fileTranslateButton.text = "🌍 Dịch Module"
+                fileTranslateButton.background = UIManager.getColor("Button.background")
+                fileTranslateButton.isEnabled = hasValidModule && hasLanguages
+            }
+        }
+    }
+    
+    private fun updateStringModuleSelection() {
+        try {
+            val modules = translationService.getAvailableModules()
+            
+            moduleDropdown.removeAllItems()
+            for (module in modules) {
+                moduleDropdown.addItem(module)
+            }
+            
+            // Auto-select first valid module
+            val firstValidModuleForString = modules.firstOrNull { it.hasStringsFile }
+            if (firstValidModuleForString != null) {
+                moduleDropdown.selectedItem = firstValidModuleForString
+            }
+            
+        } catch (e: Exception) {
+            stringStatusArea.append("❌ Lỗi khi load modules: ${e.message}\n")
         }
     }
 }
