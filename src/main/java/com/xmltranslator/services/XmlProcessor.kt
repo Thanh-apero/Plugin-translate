@@ -140,11 +140,14 @@ class XmlProcessor {
      * Escape XML text để tránh parsing errors
      */
     private fun escapeXmlText(text: String): String {
-        // Minimal XML escaping - AI handles HTML formatting preservation via prompt
-        // Only escape the most basic XML entities that could break XML parsing
+        // Preserve formatting characters as escape sequences in XML
+        // This ensures \n characters are kept as \n in the output XML
         return text
             .replace(Regex("&(?![a-zA-Z0-9#]+;)"), "&amp;") // Only escape unescaped ampersands
             .replace("'", "&apos;") // Escape single quotes
+            .replace("\n", "\\n") // Convert actual newlines to \n escape sequence
+            .replace("\t", "\\t") // Convert actual tabs to \t escape sequence
+            .replace("\r", "\\r") // Convert actual carriage returns to \r escape sequence
         // Note: < > and " are preserved by AI via prompt instructions for HTML formatting
     }
 } 

@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.0.3] - 2024-12-19
+## [0.0.3] - 2025-07-05
 
 ### 🚀 Major Features
 - **Module-based Translation** - Auto-detect Android modules, no need to manually select input/output files
@@ -24,9 +24,9 @@
 - Multi-module Android projects
 - Android library modules
 
-## [1.0.2] - 2024-12-18
+## [0.0.2] - 2025-06-18
 - Enhanced string filtering
 - Improved translation reliability
 
-## [1.0.1] - 2024-12-17
+## [0.0.1] - 2025-06-17
 - Initial release with basic translation features 

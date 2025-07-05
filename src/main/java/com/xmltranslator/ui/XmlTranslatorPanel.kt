@@ -24,6 +24,7 @@ import java.awt.event.MouseMotionAdapter
 import java.io.File
 import javax.swing.*
 import javax.swing.table.DefaultTableModel
+import javax.swing.table.DefaultTableCellRenderer
 import javax.swing.Timer
 import javax.swing.text.Position
 
@@ -37,6 +38,10 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
     private var isStringTranslating = false
     private var currentFileTask: Future<*>? = null
     private var currentStringTask: Future<*>? = null
+
+    // Cancellation flags for immediate response
+    @Volatile private var isStringTranslationCancelled = false
+    @Volatile private var isFileTranslationCancelled = false
     
     // UI components for translation control
     private lateinit var fileTranslateButton: JButton
@@ -338,6 +343,25 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         // Set column widths
         stringTable.columnModel.getColumn(0).preferredWidth = 250 // Name
         stringTable.columnModel.getColumn(1).preferredWidth = 450 // Text
+
+        // Add custom cell renderer to display actual \n, \t, \r escape sequences in the table
+        stringTable.columnModel.getColumn(1).cellRenderer = object : DefaultTableCellRenderer() {
+            override fun getTableCellRendererComponent(
+                table: JTable?, value: Any?, isSelected: Boolean, hasFocus: Boolean,
+                row: Int, column: Int
+            ): Component {
+                val component = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column)
+
+                if (value is String) {
+                    // Display escape sequences: show "\n" for actual newlines, etc.
+                    val displayText = value.replace("\n", "\\n").replace("\t", "\\t").replace("\r", "\\r")
+                    text = displayText
+                    toolTipText = "<html>${value.replace("\n", "<br>").replace("\t", "&nbsp;&nbsp;&nbsp;&nbsp;")}</html>"
+                }
+
+                return component
+            }
+        }
         
         val tableScrollPane = JScrollPane(stringTable)
         tableScrollPane.preferredSize = Dimension(700, 180)
@@ -602,12 +626,24 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
             var count = 0
             for (match in matches) {
                 val name = match.groupValues[1]
-                val text = match.groupValues[2].trim()
+                val rawText = match.groupValues[2].trim()
+                
+                val text = rawText
+                    // First handle double-escaped newlines (\\n -> \n)
+                    .replace("\\\\n", "\n")
+                    // Then handle single-escaped newlines (\n -> actual newline)
                     .replace("\\n", "\n")
+                    // Handle other common escape sequences
+                    .replace("\\\\t", "\t")
                     .replace("\\t", "\t")
+                    .replace("\\\\r", "\r")
+                    .replace("\\r", "\r")
+                    // Handle XML entities
                     .replace("&amp;", "&")
                     .replace("&lt;", "<")
                     .replace("&gt;", ">")
+                    .replace("&quot;", "\"")
+                    .replace("&apos;", "'")
                 
                 if (name.isNotEmpty() && text.isNotEmpty()) {
                     stringTableModel.addRow(arrayOf(name, text))
@@ -909,66 +945,98 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
     private fun translateStrings() {
         val resourcePath = resourceDirField.text.trim()
         val selectedValues = valuesList.selectedValuesList
-        
+
         if (resourcePath.isEmpty()) {
             Messages.showWarningDialog(project, "Please select resource directory!", "Warning")
             return
         }
-        
+
         if (selectedValues.isEmpty()) {
             Messages.showWarningDialog(project, "Please select target values folders!", "Warning")
             return
         }
-        
+
         if (stringTableModel.rowCount == 0) {
             Messages.showWarningDialog(project, "Please add some strings to translate!", "Warning")
             return
         }
-        
+
         // Set translation state
         isStringTranslating = true
+        isStringTranslationCancelled = false // Reset cancellation flag
         updateStringTranslationUI()
         stringStatusArea.text = ""
-        
+
         currentStringTask = executorService.submit {
             try {
                 SwingUtilities.invokeLater {
                     stringStatusArea.append("Starting batch string translation using Google Generative AI...\n")
                 }
-                
+
                 val resourceDir = File(resourcePath)
-                
-                // Collect all strings into a list for batch processing
+
+                // Collect all strings into a list for batch processing - Get fresh data from table
                 val stringItems = mutableListOf<Pair<String, String>>()
-                for (i in 0 until stringTableModel.rowCount) {
-                    val stringName = stringTableModel.getValueAt(i, 0) as String
-                    val stringText = stringTableModel.getValueAt(i, 1) as String
-                    stringItems.add(stringName to stringText)
+                SwingUtilities.invokeAndWait {
+                    // Get current data from table model at translation time
+                    for (i in 0 until stringTableModel.rowCount) {
+                        val stringName = stringTableModel.getValueAt(i, 0) as String
+                        val stringText = stringTableModel.getValueAt(i, 1) as String
+                        stringItems.add(stringName to stringText)
+                    }
                 }
-                
+
+                if (stringItems.isEmpty()) {
+                    SwingUtilities.invokeLater {
+                        stringStatusArea.append("❌ No strings found to translate. Translation queue is empty.\n")
+                        Messages.showWarningDialog(project, "Translation queue is empty!", "Warning")
+                    }
+                    return@submit
+                }
+
+                // Check cancellation before starting
+                if (isStringTranslationCancelled) {
+                    SwingUtilities.invokeLater {
+                        stringStatusArea.append("⏹️ Translation was cancelled before starting\n")
+                    }
+                    return@submit
+                }
+
                 SwingUtilities.invokeLater {
                     stringStatusArea.append("Collected ${stringItems.size} strings for batch processing\n")
                     stringStatusArea.append("Using batches of 50 strings to optimize API calls\n")
                 }
-                
+
                 // Use batch processing instead of individual string processing
                 translationService.addBatchStringsToXmlFiles(
                     stringItems = stringItems,
                     resourceDir = resourceDir,
                     targetFolders = selectedValues.toTypedArray(),
                     onProgress = { progress ->
+                        // Check cancellation on each progress update
+                        if (isStringTranslationCancelled) {
+                            throw java.util.concurrent.CancellationException("Translation cancelled by user")
+                        }
                         SwingUtilities.invokeLater {
                             stringStatusArea.append("$progress\n")
                             stringStatusArea.caretPosition = stringStatusArea.document.length
                         }
                     }
                 )
-                
+
+                // Final check before completion
+                if (isStringTranslationCancelled) {
+                    SwingUtilities.invokeLater {
+                        stringStatusArea.append("⏹️ Translation was cancelled\n")
+                    }
+                    return@submit
+                }
+
                 SwingUtilities.invokeLater {
                     stringStatusArea.append("✅ All strings processed successfully using batch processing!\n")
                     clearAllStrings()
                 }
-                
+
             } catch (e: Exception) {
                 SwingUtilities.invokeLater {
                     if (e is CancellationException) {
@@ -980,6 +1048,7 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
             } finally {
                 // Reset translation state
                 isStringTranslating = false
+                isStringTranslationCancelled = false
                 updateStringTranslationUI()
                 currentStringTask = null
             }
@@ -1174,11 +1243,18 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
     }
     
     private fun stopStringTranslation() {
+        isStringTranslationCancelled = true // Set flag immediately for instant response
         currentStringTask?.cancel(true)
         isStringTranslating = false
         updateStringTranslationUI()
         SwingUtilities.invokeLater {
             stringStatusArea.append("❌ Translation cancelled by user\n")
+            stringStatusArea.append("🧹 Clearing translation queue to start fresh next time...\n")
+            
+            // Clear the translation queue when stopping to prevent translating old strings
+            clearAllStrings()
+            
+            stringStatusArea.append("✨ Translation queue cleared. Add new strings to translate fresh.\n")
         }
     }
     
@@ -1295,7 +1371,7 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
                 
             } catch (e: Exception) {
                 SwingUtilities.invokeLater {
-                    if (e is CancellationException) {
+                    if (e is CancellationException ) {
                         fileStatusArea.append("⏹️ Việc dịch đã bị hủy\n")
                     } else {
                         fileStatusArea.append("❌ Lỗi: ${e.message}\n")

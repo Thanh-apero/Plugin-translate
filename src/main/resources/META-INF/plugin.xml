@@ -2,10 +2,8 @@
     <id>com.translatestrings.plugin</id>
     <name>Apero Translate strings</name>
     <vendor email="thanhnguyen6702@gmail.com" url="https://github.com/thanhnguyen6702">Thanh Nguyen</vendor>
-    <version>1.0.3</version>
+    <version>0.0.3</version>
     
-    <!-- License information -->
-    <license>MIT</license>
 
     <description><![CDATA[
         A powerful string translation plugin for IntelliJ-based IDEs (including Android Studio) that helps developers translate string resources using Google Generative AI.

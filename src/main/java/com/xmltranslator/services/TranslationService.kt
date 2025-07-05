@@ -92,6 +92,7 @@ class TranslationService(private val project: Project) {
     
     /**
      * Translate danh sách strings - THROW exception khi lỗi (không fallback)
+     * Check for cancellation before, during, and after API call.
      */
     fun translateStrings(
         strings: List<Pair<String, String>>, // name to text pairs
@@ -99,6 +100,11 @@ class TranslationService(private val project: Project) {
         targetLang: String,
         onProgress: (String) -> Unit = {}
     ): List<Pair<String, String>> {
+        // Check for cancellation before starting translation
+        if (Thread.currentThread().isInterrupted) {
+            throw java.util.concurrent.CancellationException("Translation was cancelled")
+        }
+        
         onProgress("Chuẩn bị yêu cầu translation...")
         
         val request = TranslationRequest(
@@ -109,8 +115,18 @@ class TranslationService(private val project: Project) {
             }
         )
         
+        // Check for cancellation before API call
+        if (Thread.currentThread().isInterrupted) {
+            throw java.util.concurrent.CancellationException("Translation was cancelled")
+        }
+        
         onProgress("Gửi yêu cầu tới translation API...")
         val response = apiService.translateRequest(request)
+        
+        // Check for cancellation before processing response
+        if (Thread.currentThread().isInterrupted) {
+            throw java.util.concurrent.CancellationException("Translation was cancelled")
+        }
         
         onProgress("Xử lý kết quả translation...")
         return strings.zip(response.translations).map { (original, translated) ->
@@ -286,18 +302,28 @@ class TranslationService(private val project: Project) {
     ) {
         val totalStrings = stringItems.size
         onProgress("Bắt đầu batch translation cho $totalStrings strings...")
-        
+
         // Group strings into batches
         val batches = stringItems.chunked(batchSize)
         onProgress("Chia thành ${batches.size} batches với tối đa $batchSize strings mỗi batch")
-        
+
         for (folder in targetFolders) {
+            // Check for cancellation before processing each folder
+            if (Thread.currentThread().isInterrupted) {
+                throw java.util.concurrent.CancellationException("Translation was cancelled")
+            }
+
             val lang = folder.removePrefix("values-")
             onProgress("Xử lý folder: $folder")
-            
+
             if (folder == "values") {
                 // Original language - không cần dịch
                 for ((stringName, originalText) in stringItems) {
+                    // Check for cancellation periodically
+                    if (Thread.currentThread().isInterrupted) {
+                        throw java.util.concurrent.CancellationException("Translation was cancelled")
+                    }
+
                     val xmlFile = File(resourceDir, "$folder/strings.xml")
                     xmlFile.parentFile.mkdirs()
                     xmlProcessor.addOrUpdateStringInXml(xmlFile, stringName, originalText)
@@ -307,8 +333,13 @@ class TranslationService(private val project: Project) {
                 // Target language - cần dịch
                 var processedInLang = 0
                 for ((batchIndex, batch) in batches.withIndex()) {
+                    // Check for cancellation before each batch
+                    if (Thread.currentThread().isInterrupted) {
+                        throw java.util.concurrent.CancellationException("Translation was cancelled")
+                    }
+
                     onProgress("Dịch batch ${batchIndex + 1}/${batches.size} sang $lang (${batch.size} strings)...")
-                    
+
                     // Translate entire batch at once - KHÔNG catch exception
                     val translatedBatch = translateStrings(
                         batch,
@@ -317,32 +348,51 @@ class TranslationService(private val project: Project) {
                     ) { progress ->
                         onProgress("$lang batch ${batchIndex + 1}: $progress")
                     }
-                    
+
+                    // Check for cancellation immediately after API call completes
+                    if (Thread.currentThread().isInterrupted) {
+                        throw java.util.concurrent.CancellationException("Translation was cancelled")
+                    }
+
+                    // Notify progress after API completion
+                    onProgress("Completed API call for batch ${batchIndex + 1}/${batches.size} in $lang")
+
                     // Add translated strings to XML
                     for ((originalPair, translatedPair) in batch.zip(translatedBatch)) {
+                        // Check for cancellation during file operations
+                        if (Thread.currentThread().isInterrupted) {
+                            throw java.util.concurrent.CancellationException("Translation was cancelled")
+                        }
+
                         val stringName = originalPair.first
                         val translatedText = translatedPair.second
-                        
+
                         val xmlFile = File(resourceDir, "$folder/strings.xml")
                         xmlFile.parentFile.mkdirs()
                         xmlProcessor.addOrUpdateStringInXml(xmlFile, stringName, translatedText)
                         processedInLang++
                     }
-                    
+
                     onProgress("Đã thêm batch ${batchIndex + 1} vào $folder ($processedInLang/$totalStrings strings)")
-                    
-                    // Add delay between batches to respect API limits
+
+                    // Add delay between batches to respect API limits - with cancellation check
                     if (batchIndex < batches.size - 1) {
+                        if (Thread.currentThread().isInterrupted) {
+                            throw java.util.concurrent.CancellationException("Translation was cancelled")
+                        }
                         Thread.sleep(2000)
                     }
                 }
                 onProgress("Hoàn thành tất cả batches cho $folder ($processedInLang strings)")
             }
-            
-            // Add delay between languages
+
+            // Add delay between languages - with cancellation check
+            if (Thread.currentThread().isInterrupted) {
+                throw java.util.concurrent.CancellationException("Translation was cancelled")
+            }
             Thread.sleep(1000)
         }
-        
+
         onProgress("Tất cả $totalStrings strings đã được thêm vào tất cả folders được chọn!")
     }
     
