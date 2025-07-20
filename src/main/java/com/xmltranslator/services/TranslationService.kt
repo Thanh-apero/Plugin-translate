@@ -3,19 +3,14 @@ package com.xmltranslator.services
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
 import java.io.File
+import java.util.concurrent.*
+import java.util.concurrent.CancellationException
 
-// Type aliases để maintain compatibility - moved outside class
 typealias TranslationRequest = ApiService.TranslationRequest
 typealias StringItem = ApiService.StringItem
 typealias TranslationResponse = ApiService.TranslationResponse
 typealias TranslatedItem = ApiService.TranslatedItem
 
-/**
- * Main translation service orchestrator - refactored để tách responsibilities
- * Sử dụng các services khác cho specific tasks và sửa lỗi error handling
- * 
- * @author Thanh Nguyen <thanhnguyen6702@gmail.com>
- */
 @Service(Service.Level.PROJECT)
 class TranslationService(private val project: Project) {
     
@@ -23,165 +18,7 @@ class TranslationService(private val project: Project) {
     private val xmlProcessor by lazy { project.getService(XmlProcessor::class.java) }
     private val stringFilter by lazy { project.getService(StringFilter::class.java) }
     private val projectScanner by lazy { project.getService(ProjectScanner::class.java) }
-    
-    /**
-     * Delegate to StringFilter service
-     */
-    fun getFilteredValuesFolders(resourceDir: File): List<String> {
-        return stringFilter.getFilteredValuesFolders(resourceDir)
-    }
-    
-    /**
-     * Delegate to StringFilter service
-     */
-    fun getFilteringInfo(): String {
-        return stringFilter.getFilteringInfo()
-    }
-    
-    /**
-     * Delegate to StringFilter service
-     */
-    fun testExclusion(name: String, isFolder: Boolean = false): Pair<Boolean, String> {
-        return stringFilter.testExclusion(name, isFolder)
-    }
-    
-    /**
-     * Get timeout information for a given number of strings
-     */
-    fun getTimeoutInfo(stringCount: Int): String {
-        return apiService.getTimeoutInfo(stringCount)
-    }
-    
-    /**
-     * Scan project và trả về danh sách modules có thể dịch
-     */
-    fun getAvailableModules(): List<ProjectScanner.AndroidModule> {
-        return projectScanner.scanProjectModules(project)
-    }
-    
-    /**
-     * Get project info for debugging
-     */
-    fun getProjectInfo(): String {
-        return projectScanner.getProjectInfo(project)
-    }
-    
-    /**
-     * Get filtered values folders for a specific module
-     */
-    fun getFilteredValuesFolders(module: ProjectScanner.AndroidModule): List<String> {
-        return projectScanner.getFilteredValuesFolders(module)
-    }
 
-    /**
-     * Translate một text đơn lẻ - THROW exception khi lỗi (không fallback)
-     */
-    fun translateText(text: String, sourceLang: String, targetLang: String): String {
-        println("DEBUG: Dịch '$text' từ $sourceLang sang $targetLang")
-        
-        val request = TranslationRequest(
-            source_language = sourceLang,
-            target_language = targetLang,
-            strings = listOf(StringItem(1, text))
-        )
-        
-        val response = apiService.translateRequest(request)
-        return response.translations.firstOrNull()?.text 
-            ?: throw Exception("Không nhận được kết quả translation cho text: $text")
-    }
-    
-    /**
-     * Translate danh sách strings - THROW exception khi lỗi (không fallback)
-     * Check for cancellation before, during, and after API call.
-     */
-    fun translateStrings(
-        strings: List<Pair<String, String>>, // name to text pairs
-        sourceLang: String,
-        targetLang: String,
-        onProgress: (String) -> Unit = {}
-    ): List<Pair<String, String>> {
-        // Check for cancellation before starting translation
-        if (Thread.currentThread().isInterrupted) {
-            throw java.util.concurrent.CancellationException("Translation was cancelled")
-        }
-        
-        onProgress("Chuẩn bị yêu cầu translation...")
-        
-        val request = TranslationRequest(
-            source_language = sourceLang,
-            target_language = targetLang,
-            strings = strings.mapIndexed { index, (name, text) ->
-                StringItem(index + 1, text, name)
-            }
-        )
-        
-        // Check for cancellation before API call
-        if (Thread.currentThread().isInterrupted) {
-            throw java.util.concurrent.CancellationException("Translation was cancelled")
-        }
-        
-        onProgress("Gửi yêu cầu tới translation API...")
-        val response = apiService.translateRequest(request)
-        
-        // Check for cancellation before processing response
-        if (Thread.currentThread().isInterrupted) {
-            throw java.util.concurrent.CancellationException("Translation was cancelled")
-        }
-        
-        onProgress("Xử lý kết quả translation...")
-        return strings.zip(response.translations).map { (original, translated) ->
-            original.first to translated.text
-        }
-    }
-
-    
-    fun translateXmlFile(
-        inputFile: File,
-        outputDir: File,
-        targetLanguages: List<String>,
-        onProgress: (String) -> Unit = {}
-    ) {
-        onProgress("Đọc file XML...")
-        
-        val xmlContent = inputFile.readText()
-        val document = xmlProcessor.parseXml(xmlContent)
-        val stringElements = xmlProcessor.extractStringElements(document)
-        
-        if (stringElements.isEmpty()) {
-            onProgress("Không tìm thấy strings có thể dịch trong file XML")
-            return
-        }
-        
-        onProgress("Tìm thấy ${stringElements.size} strings để dịch")
-        
-        for (lang in targetLanguages) {
-            onProgress("Đang dịch sang $lang...")
-            
-            // KHÔNG catch exception - để lỗi bubble up và ngăn việc ghi file
-            val translations = translateStrings(
-                stringElements,
-                "en",
-                lang
-            ) { progress ->
-                onProgress("$lang: $progress")
-            }
-            
-            val outputFile = File(outputDir, "values-$lang/strings.xml")
-            outputFile.parentFile.mkdirs()
-            
-            xmlProcessor.saveTranslatedXml(translations, outputFile)
-            onProgress("Đã lưu translations cho $lang")
-            
-            // Wait between translations to avoid API limits
-            Thread.sleep(2000)
-        }
-        
-        onProgress("Dịch hoàn tất!")
-    }
-    
-    /**
-     * Translate strings.xml trong một module cụ thể
-     */
     fun translateModule(
         module: ProjectScanner.AndroidModule,
         targetLanguages: List<String>,
@@ -190,281 +27,337 @@ class TranslationService(private val project: Project) {
         if (!module.hasStringsFile) {
             throw Exception("Module ${module.name} không có file strings.xml")
         }
-        
-        onProgress("📦 Đang dịch module: ${module.name}")
-        onProgress("📄 Input: ${module.stringsFile!!.path}")
-        
-        val xmlContent = module.stringsFile.readText()
+
+        val availableApiKeys = apiService.getAvailableApiKeys()
+        if (availableApiKeys.size < 2) {
+            throw Exception("Cần ít nhất 2 API keys để sử dụng parallel translation")
+        }
+
+        val xmlContent = module.stringsFile!!.readText()
         val document = xmlProcessor.parseXml(xmlContent)
         val stringElements = xmlProcessor.extractStringElements(document)
-        
+
         if (stringElements.isEmpty()) {
-            onProgress("❌ Không tìm thấy strings có thể dịch trong ${module.name}")
-            return
+            throw Exception("Không tìm thấy strings có thể dịch trong ${module.name}")
         }
+
+        val batchSize = 100
+        val stringBatches = stringElements.chunked(batchSize)
+        val totalCallsPerMinute = availableApiKeys.size * 10
+        val callsPerLanguage = stringBatches.size
+        val maxSimultaneousLanguages = totalCallsPerMinute / callsPerLanguage
         
-        onProgress("✅ Tìm thấy ${stringElements.size} strings để dịch")
+        onProgress("⚡ ${stringElements.size} strings → ${stringBatches.size} batches | ${availableApiKeys.size} keys → ${maxSimultaneousLanguages} languages parallel")
+
+        val languageGroups = targetLanguages.chunked(maxSimultaneousLanguages)
         
-        for (lang in targetLanguages) {
-            onProgress("🌍 Đang dịch sang $lang...")
-            
-            // KHÔNG catch exception - để lỗi bubble up và ngăn việc ghi file
-            val translations = translateStrings(
-                stringElements,
-                "en",
-                lang
-            ) { progress ->
-                onProgress("   $lang: $progress")
+        for ((groupIndex, languageGroup) in languageGroups.withIndex()) {
+            if (Thread.currentThread().isInterrupted) {
+                throw CancellationException("Translation cancelled")
             }
             
-            val outputFile = File(module.resDir, "values-$lang/strings.xml")
-            outputFile.parentFile.mkdirs()
+            onProgress("🌍 Group ${groupIndex + 1}/${languageGroups.size}: ${languageGroup.joinToString(", ")}")
             
-            xmlProcessor.saveTranslatedXml(translations, outputFile)
-            onProgress("✅ Đã lưu translations cho $lang tại ${outputFile.path}")
-            
-            // Wait between translations to avoid API limits
-            Thread.sleep(2000)
-        }
-        
-        onProgress("🎉 Dịch module ${module.name} hoàn tất!")
-    }
-    
+            val languageExecutor = Executors.newFixedThreadPool(languageGroup.size)
+            val languageFutures = mutableListOf<Future<Unit>>()
 
-    
+            try {
+                for (lang in languageGroup) {
+                    val future = languageExecutor.submit<Unit> {
+                        translateLanguage(stringBatches, lang, availableApiKeys, module.resDir, onProgress)
+                    }
+                    languageFutures.add(future)
+                }
 
-    
-    fun addStringToXmlFiles(
-        stringName: String,
-        originalText: String,
-        resourceDir: File,
-        targetFolders: Array<String>,
-        onProgress: (String) -> Unit = {}
-    ) {
-        for (folder in targetFolders) {
-            val translatedText = if (folder == "values") {
-                originalText
-            } else {
-                val lang = folder.removePrefix("values-")
-                onProgress("Đang dịch sang $lang...")
-                // KHÔNG catch exception - để lỗi bubble up
-                translateText(originalText, "en", lang)
+                for (future in languageFutures) {
+                    future.get()
+                }
+
+            } catch (e: Exception) {
+                languageFutures.forEach { it.cancel(true) }
+                throw e
+            } finally {
+                languageExecutor.shutdown()
+                languageExecutor.awaitTermination(5, TimeUnit.SECONDS)
             }
-            
-            val xmlFile = File(resourceDir, "$folder/strings.xml")
-            xmlFile.parentFile.mkdirs()
-            
-            xmlProcessor.addOrUpdateStringInXml(xmlFile, stringName, translatedText)
-            onProgress("Đã thêm string vào $folder")
+
+            if (groupIndex < languageGroups.size - 1) {
+                Thread.sleep(2000)
+            }
         }
-        
-        onProgress("Đã thêm string vào tất cả folders được chọn!")
+
+        onProgress("✅ Translation completed")
     }
-    
-    /**
-     * Add strings vào một module cụ thể
-     */
-    fun addStringToModule(
-        stringName: String,
-        originalText: String,
+
+    fun addBatchStrings(
+        stringItems: List<Pair<String, String>>,
         module: ProjectScanner.AndroidModule,
         targetFolders: Array<String>,
         onProgress: (String) -> Unit = {}
     ) {
-        onProgress("📦 Đang thêm string vào module: ${module.name}")
-        
-        for (folder in targetFolders) {
-            val translatedText = if (folder == "values") {
-                originalText
-            } else {
-                val lang = folder.removePrefix("values-")
-                onProgress("🌍 Đang dịch sang $lang...")
-                // KHÔNG catch exception - để lỗi bubble up
-                translateText(originalText, "en", lang)
-            }
-            
-            val xmlFile = File(module.resDir, "$folder/strings.xml")
-            xmlFile.parentFile.mkdirs()
-            
-            xmlProcessor.addOrUpdateStringInXml(xmlFile, stringName, translatedText)
-            onProgress("✅ Đã thêm string vào $folder")
+        val availableApiKeys = apiService.getAvailableApiKeys()
+        if (availableApiKeys.size < 2) {
+            throw Exception("Cần ít nhất 2 API keys để sử dụng parallel translation")
         }
-        
-        onProgress("🎉 Đã thêm string vào tất cả folders được chọn trong module ${module.name}!")
-    }
-    
-    fun addBatchStringsToXmlFiles(
-        stringItems: List<Pair<String, String>>, // (name, text) pairs
-        resourceDir: File,
-        targetFolders: Array<String>,
-        onProgress: (String) -> Unit = {},
-        batchSize: Int = 50
-    ) {
-        val totalStrings = stringItems.size
-        onProgress("Bắt đầu batch translation cho $totalStrings strings...")
 
-        // Group strings into batches
-        val batches = stringItems.chunked(batchSize)
-        onProgress("Chia thành ${batches.size} batches với tối đa $batchSize strings mỗi batch")
+        val batchSize = 100
+        val stringBatches = stringItems.chunked(batchSize)
+        
+        onProgress("⚡ ${stringItems.size} strings → ${stringBatches.size} batches")
 
         for (folder in targetFolders) {
-            // Check for cancellation before processing each folder
             if (Thread.currentThread().isInterrupted) {
-                throw java.util.concurrent.CancellationException("Translation was cancelled")
+                throw CancellationException("Translation cancelled")
             }
 
             val lang = folder.removePrefix("values-")
-            onProgress("Xử lý folder: $folder")
 
             if (folder == "values") {
-                // Original language - không cần dịch
-                for ((stringName, originalText) in stringItems) {
-                    // Check for cancellation periodically
-                    if (Thread.currentThread().isInterrupted) {
-                        throw java.util.concurrent.CancellationException("Translation was cancelled")
-                    }
-
-                    val xmlFile = File(resourceDir, "$folder/strings.xml")
-                    xmlFile.parentFile.mkdirs()
-                    xmlProcessor.addOrUpdateStringInXml(xmlFile, stringName, originalText)
-                }
-                onProgress("Đã thêm $totalStrings strings vào $folder (original)")
-            } else {
-                // Target language - cần dịch
-                var processedInLang = 0
-                for ((batchIndex, batch) in batches.withIndex()) {
-                    // Check for cancellation before each batch
-                    if (Thread.currentThread().isInterrupted) {
-                        throw java.util.concurrent.CancellationException("Translation was cancelled")
-                    }
-
-                    onProgress("Dịch batch ${batchIndex + 1}/${batches.size} sang $lang (${batch.size} strings)...")
-
-                    // Translate entire batch at once - KHÔNG catch exception
-                    val translatedBatch = translateStrings(
-                        batch,
-                        "en",
-                        lang
-                    ) { progress ->
-                        onProgress("$lang batch ${batchIndex + 1}: $progress")
-                    }
-
-                    // Check for cancellation immediately after API call completes
-                    if (Thread.currentThread().isInterrupted) {
-                        throw java.util.concurrent.CancellationException("Translation was cancelled")
-                    }
-
-                    // Notify progress after API completion
-                    onProgress("Completed API call for batch ${batchIndex + 1}/${batches.size} in $lang")
-
-                    // Add translated strings to XML
-                    for ((originalPair, translatedPair) in batch.zip(translatedBatch)) {
-                        // Check for cancellation during file operations
-                        if (Thread.currentThread().isInterrupted) {
-                            throw java.util.concurrent.CancellationException("Translation was cancelled")
-                        }
-
-                        val stringName = originalPair.first
-                        val translatedText = translatedPair.second
-
-                        val xmlFile = File(resourceDir, "$folder/strings.xml")
-                        xmlFile.parentFile.mkdirs()
-                        xmlProcessor.addOrUpdateStringInXml(xmlFile, stringName, translatedText)
-                        processedInLang++
-                    }
-
-                    onProgress("Đã thêm batch ${batchIndex + 1} vào $folder ($processedInLang/$totalStrings strings)")
-
-                    // Add delay between batches to respect API limits - with cancellation check
-                    if (batchIndex < batches.size - 1) {
-                        if (Thread.currentThread().isInterrupted) {
-                            throw java.util.concurrent.CancellationException("Translation was cancelled")
-                        }
-                        Thread.sleep(2000)
-                    }
-                }
-                onProgress("Hoàn thành tất cả batches cho $folder ($processedInLang strings)")
-            }
-
-            // Add delay between languages - with cancellation check
-            if (Thread.currentThread().isInterrupted) {
-                throw java.util.concurrent.CancellationException("Translation was cancelled")
-            }
-            Thread.sleep(1000)
-        }
-
-        onProgress("Tất cả $totalStrings strings đã được thêm vào tất cả folders được chọn!")
-    }
-    
-    /**
-     * Add batch strings vào một module cụ thể
-     */
-    fun addBatchStringsToModule(
-        stringItems: List<Pair<String, String>>, // (name, text) pairs
-        module: ProjectScanner.AndroidModule,
-        targetFolders: Array<String>,
-        onProgress: (String) -> Unit = {},
-        batchSize: Int = 50
-    ) {
-        val totalStrings = stringItems.size
-        onProgress("📦 Bắt đầu batch translation cho $totalStrings strings trong module ${module.name}...")
-        
-        // Group strings into batches
-        val batches = stringItems.chunked(batchSize)
-        onProgress("📊 Chia thành ${batches.size} batches với tối đa $batchSize strings mỗi batch")
-        
-        for (folder in targetFolders) {
-            val lang = folder.removePrefix("values-")
-            onProgress("📂 Xử lý folder: $folder")
-            
-            if (folder == "values") {
-                // Original language - không cần dịch
                 for ((stringName, originalText) in stringItems) {
                     val xmlFile = File(module.resDir, "$folder/strings.xml")
                     xmlFile.parentFile.mkdirs()
                     xmlProcessor.addOrUpdateStringInXml(xmlFile, stringName, originalText)
                 }
-                onProgress("✅ Đã thêm $totalStrings strings vào $folder (original)")
+                onProgress("✅ Added ${stringItems.size} strings to $folder")
             } else {
-                // Target language - cần dịch
-                var processedInLang = 0
-                for ((batchIndex, batch) in batches.withIndex()) {
-                    onProgress("🌍 Dịch batch ${batchIndex + 1}/${batches.size} sang $lang (${batch.size} strings)...")
-                    
-                    // Translate entire batch at once - KHÔNG catch exception
-                    val translatedBatch = translateStrings(
-                        batch,
-                        "en",
-                        lang
-                    ) { progress ->
-                        onProgress("   $lang batch ${batchIndex + 1}: $progress")
+                onProgress("🌍 Processing $folder...")
+                
+                val executor = Executors.newFixedThreadPool(availableApiKeys.size)
+                val allFutures = mutableListOf<Future<Pair<Int, List<Pair<String, String>>>>>()
+
+                try {
+                    for ((batchIndex, batch) in stringBatches.withIndex()) {
+                        val apiKeyIndex = batchIndex % availableApiKeys.size
+                        val apiKey = availableApiKeys[apiKeyIndex]
+
+                        val future = executor.submit<Pair<Int, List<Pair<String, String>>>> {
+                            val request = TranslationRequest(
+                                source_language = "en",
+                                target_language = lang,
+                                strings = batch.mapIndexed { index, (name, text) ->
+                                    StringItem(index + 1, text, name)
+                                }
+                            )
+
+                            val response = apiService.translateRequestWithApiKey(request, apiKey)
+                            val translationMap = response.translations.associateBy { it.id }
+                            
+                            val batchTranslations = batch.mapIndexed { index, originalPair ->
+                                val expectedId = index + 1
+                                val translation = translationMap[expectedId]
+                                    ?: throw Exception("Missing translation ID $expectedId")
+                                originalPair.first to translation.text
+                            }
+
+                            batchIndex to batchTranslations
+                        }
+
+                        allFutures.add(future)
                     }
-                    
-                    // Add translated strings to XML
-                    for ((originalPair, translatedPair) in batch.zip(translatedBatch)) {
-                        val stringName = originalPair.first
-                        val translatedText = translatedPair.second
+
+                    var processedCount = 0
+                    for ((futureIndex, future) in allFutures.withIndex()) {
+                        val (batchIndex, batchResult) = future.get()
                         
-                        val xmlFile = File(module.resDir, "$folder/strings.xml")
-                        xmlFile.parentFile.mkdirs()
-                        xmlProcessor.addOrUpdateStringInXml(xmlFile, stringName, translatedText)
-                        processedInLang++
+                        for ((stringName, translatedText) in batchResult) {
+                            val xmlFile = File(module.resDir, "$folder/strings.xml") 
+                            xmlFile.parentFile.mkdirs()
+                            xmlProcessor.addOrUpdateStringInXml(xmlFile, stringName, translatedText)
+                            processedCount++
+                        }
+                        
+                        val progress = ((futureIndex + 1) * 100) / allFutures.size
+                        onProgress("📦 [$folder] $progress% (${futureIndex + 1}/${allFutures.size})")
                     }
-                    
-                    onProgress("✅ Đã thêm batch ${batchIndex + 1} vào $folder ($processedInLang/$totalStrings strings)")
-                    
-                    // Add delay between batches to respect API limits
-                    if (batchIndex < batches.size - 1) {
-                        Thread.sleep(2000)
-                    }
+
+                    onProgress("✅ [$folder] $processedCount strings completed")
+
+                } catch (e: Exception) {
+                    allFutures.forEach { it.cancel(true) }
+                    throw e
+                } finally {
+                    executor.shutdown()
+                    executor.awaitTermination(5, TimeUnit.SECONDS)
                 }
-                onProgress("🎉 Hoàn thành tất cả batches cho $folder ($processedInLang strings)")
             }
-            
-            // Add delay between languages
-            Thread.sleep(1000)
+
+            Thread.sleep(500)
         }
-        
-        onProgress("🎉 Tất cả $totalStrings strings đã được thêm vào module ${module.name}!")
+
+        onProgress("✅ Batch processing completed")
     }
+
+    fun addBatchStringsToXmlFiles(
+        stringItems: List<Pair<String, String>>,
+        resourceDir: File,
+        targetFolders: Array<String>,
+        onProgress: (String) -> Unit = {}
+    ) {
+        val availableApiKeys = apiService.getAvailableApiKeys()
+        if (availableApiKeys.size < 2) {
+            throw Exception("Cần ít nhất 2 API keys để sử dụng parallel translation")
+        }
+
+        val batchSize = 100
+        val stringBatches = stringItems.chunked(batchSize)
+        
+        onProgress("⚡ ${stringItems.size} strings → ${stringBatches.size} batches")
+
+        for (folder in targetFolders) {
+            if (Thread.currentThread().isInterrupted) {
+                throw CancellationException("Translation cancelled")
+            }
+
+            val lang = folder.removePrefix("values-")
+
+            if (folder == "values") {
+                for ((stringName, originalText) in stringItems) {
+                    val xmlFile = File(resourceDir, "$folder/strings.xml")
+                    xmlFile.parentFile.mkdirs()
+                    xmlProcessor.addOrUpdateStringInXml(xmlFile, stringName, originalText)
+                }
+                onProgress("✅ Added ${stringItems.size} strings to $folder")
+            } else {
+                onProgress("🌍 Processing $folder...")
+                
+                val executor = Executors.newFixedThreadPool(availableApiKeys.size)
+                val allFutures = mutableListOf<Future<Pair<Int, List<Pair<String, String>>>>>()
+
+                try {
+                    for ((batchIndex, batch) in stringBatches.withIndex()) {
+                        val apiKeyIndex = batchIndex % availableApiKeys.size
+                        val apiKey = availableApiKeys[apiKeyIndex]
+
+                        val future = executor.submit<Pair<Int, List<Pair<String, String>>>> {
+                            val request = TranslationRequest(
+                                source_language = "en",
+                                target_language = lang,
+                                strings = batch.mapIndexed { index, (name, text) ->
+                                    StringItem(index + 1, text, name)
+                                }
+                            )
+
+                            val response = apiService.translateRequestWithApiKey(request, apiKey)
+                            val translationMap = response.translations.associateBy { it.id }
+                            
+                            val batchTranslations = batch.mapIndexed { index, originalPair ->
+                                val expectedId = index + 1
+                                val translation = translationMap[expectedId]
+                                    ?: throw Exception("Missing translation ID $expectedId")
+                                originalPair.first to translation.text
+                            }
+
+                            batchIndex to batchTranslations
+                        }
+
+                        allFutures.add(future)
+                    }
+
+                    var processedCount = 0
+                    for ((futureIndex, future) in allFutures.withIndex()) {
+                        val (batchIndex, batchResult) = future.get()
+                        
+                        for ((stringName, translatedText) in batchResult) {
+                            val xmlFile = File(resourceDir, "$folder/strings.xml") 
+                            xmlFile.parentFile.mkdirs()
+                            xmlProcessor.addOrUpdateStringInXml(xmlFile, stringName, translatedText)
+                            processedCount++
+                        }
+                        
+                        val progress = ((futureIndex + 1) * 100) / allFutures.size
+                        onProgress("📦 [$folder] $progress% (${futureIndex + 1}/${allFutures.size})")
+                    }
+
+                    onProgress("✅ [$folder] $processedCount strings completed")
+
+                } catch (e: Exception) {
+                    allFutures.forEach { it.cancel(true) }
+                    throw e
+                } finally {
+                    executor.shutdown()
+                    executor.awaitTermination(5, TimeUnit.SECONDS)
+                }
+            }
+
+            Thread.sleep(500)
+        }
+
+        onProgress("✅ Batch processing completed")
+    }
+
+    private fun translateLanguage(
+        stringBatches: List<List<Pair<String, String>>>,
+        lang: String,
+        apiKeys: List<String>,
+        resDir: File,
+        onProgress: (String) -> Unit
+    ) {
+        val executor = Executors.newFixedThreadPool(apiKeys.size)
+        val allFutures = mutableListOf<Future<Pair<Int, List<Pair<String, String>>>>>()
+
+        try {
+            for ((batchIndex, batch) in stringBatches.withIndex()) {
+                val apiKeyIndex = batchIndex % apiKeys.size
+                val apiKey = apiKeys[apiKeyIndex]
+
+                val future = executor.submit<Pair<Int, List<Pair<String, String>>>> {
+                    val request = TranslationRequest(
+                        source_language = "en",
+                        target_language = lang,
+                        strings = batch.mapIndexed { index, (name, text) ->
+                            StringItem(index + 1, text, name)
+                        }
+                    )
+
+                    val response = apiService.translateRequestWithApiKey(request, apiKey)
+                    val translationMap = response.translations.associateBy { it.id }
+                    
+                    val batchTranslations = batch.mapIndexed { index, originalPair ->
+                        val expectedId = index + 1
+                        val translation = translationMap[expectedId]
+                            ?: throw Exception("Missing translation ID $expectedId")
+                        originalPair.first to translation.text
+                    }
+
+                    batchIndex to batchTranslations
+                }
+
+                allFutures.add(future)
+            }
+
+            val allTranslations = mutableListOf<Pair<String, String>>()
+            for ((futureIndex, future) in allFutures.withIndex()) {
+                val (batchIndex, batchResult) = future.get()
+                allTranslations.addAll(batchResult)
+                
+                val progress = ((futureIndex + 1) * 100) / allFutures.size
+                onProgress("📦 [$lang] $progress% (${futureIndex + 1}/${allFutures.size})")
+            }
+
+            // Sort and save
+            val originalOrder = stringBatches.flatten().map { it.first }
+            val sortedTranslations = allTranslations.sortedBy { originalOrder.indexOf(it.first) }
+
+            val outputFile = File(resDir, "values-$lang/strings.xml")
+            outputFile.parentFile.mkdirs()
+            xmlProcessor.mergeTranslatedXml(sortedTranslations, outputFile)
+            
+            onProgress("💾 [$lang] ${sortedTranslations.size} strings saved")
+
+        } finally {
+            executor.shutdown()
+            executor.awaitTermination(5, TimeUnit.SECONDS)
+        }
+    }
+
+    // Utility methods
+    fun getFilteredValuesFolders(resourceDir: File): List<String> = stringFilter.getFilteredValuesFolders(resourceDir)
+    fun getFilteringInfo(): String = stringFilter.getFilteringInfo()
+    fun testExclusion(name: String, isFolder: Boolean = false): Pair<Boolean, String> = stringFilter.testExclusion(name, isFolder)
+    fun getTimeoutInfo(stringCount: Int): String = apiService.getTimeoutInfo(stringCount)
+    fun getRateLimitInfo(): String = apiService.getRateLimitInfo()
+    fun getModelInfo(): String = apiService.getModelInfo()
+    fun getAvailableModules(): List<ProjectScanner.AndroidModule> = projectScanner.scanProjectModules(project)
+    fun getProjectInfo(): String = projectScanner.getProjectInfo(project)
+    fun getFilteredValuesFolders(module: ProjectScanner.AndroidModule): List<String> = projectScanner.getFilteredValuesFolders(module)
 }

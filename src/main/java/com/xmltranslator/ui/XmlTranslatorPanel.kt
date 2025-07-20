@@ -103,30 +103,41 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
     private fun createFileTranslationPanel(): JPanel {
         val panel = JPanel(BorderLayout())
         
-        // Module selection section
+        // Module selection section - Fixed layout
         val modulePanel = JPanel(BorderLayout())
         modulePanel.border = BorderFactory.createTitledBorder("📦 Select Module to Translate")
         
-        // Module selection with info
-        val moduleTopPanel = JPanel(FlowLayout(FlowLayout.LEFT))
+        // Module selection with info - Using BoxLayout for responsive design
+        val moduleTopPanel = JPanel()
+        moduleTopPanel.layout = BoxLayout(moduleTopPanel, BoxLayout.X_AXIS)
+        moduleTopPanel.border = BorderFactory.createEmptyBorder(5, 5, 5, 5)
+        
         val infoLabel = JBLabel("<html><i>Select an Android module with strings.xml to translate</i></html>")
         moduleTopPanel.add(infoLabel)
         
-        val refreshModulesButton = JButton("🔄 Refresh Modules")
+        moduleTopPanel.add(Box.createHorizontalGlue())
+        
+        val refreshModulesButton = JButton("🔄 Refresh")
+        refreshModulesButton.preferredSize = Dimension(100, 25)
+        refreshModulesButton.maximumSize = Dimension(100, 25)
         refreshModulesButton.addActionListener { loadAvailableModules() }
         moduleTopPanel.add(refreshModulesButton)
         
-        val showProjectInfoButton = JButton("ℹ️ Project Info")
+        moduleTopPanel.add(Box.createRigidArea(Dimension(5, 0)))
+        
+        val showProjectInfoButton = JButton("ℹ️ Info")
+        showProjectInfoButton.preferredSize = Dimension(80, 25)
+        showProjectInfoButton.maximumSize = Dimension(80, 25)
         showProjectInfoButton.addActionListener { showProjectInfo() }
         moduleTopPanel.add(showProjectInfoButton)
         
         modulePanel.add(moduleTopPanel, BorderLayout.NORTH)
         
-        // Module list
+        // Module list - Fixed sizing
         moduleList.selectionMode = ListSelectionModel.SINGLE_SELECTION
-        moduleList.font = java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 12)
+        moduleList.font = java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 11)
         
-        // Custom cell renderer for better display
+        // Simplified cell renderer to avoid layout issues
         moduleList.cellRenderer = object : DefaultListCellRenderer() {
             override fun getListCellRendererComponent(
                 list: JList<*>?, value: Any?, index: Int, isSelected: Boolean, cellHasFocus: Boolean
@@ -134,16 +145,9 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
                 super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
                 
                 if (value is ProjectScanner.AndroidModule) {
-                    text = value.toString()
-                    toolTipText = """
-                        <html>
-                        <b>Module:</b> ${value.name}<br>
-                        <b>Path:</b> ${value.path}<br>
-                        <b>Res dir:</b> ${value.resDir.path}<br>
-                        <b>Values folders:</b> ${value.availableValuesFolders.joinToString(", ")}<br>
-                        <b>Strings file:</b> ${if (value.hasStringsFile) "✅ Found" else "❌ Missing"}
-                        </html>
-                    """.trimIndent()
+                    val status = if (value.hasStringsFile) "✅" else "❌"
+                    text = "${value.name} ($status ${value.availableValuesFolders.size} folders)"
+                    toolTipText = "Path: ${value.resDir.path}"
                 }
                 
                 return this
@@ -158,93 +162,125 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         }
         
         val moduleScrollPane = JScrollPane(moduleList)
-        moduleScrollPane.preferredSize = Dimension(700, 120)
+        moduleScrollPane.preferredSize = Dimension(680, 100)
+        moduleScrollPane.minimumSize = Dimension(400, 80)
         moduleScrollPane.border = BorderFactory.createLoweredBevelBorder()
         
         setupSmartScrollBehavior(moduleList, moduleScrollPane)
         
         modulePanel.add(moduleScrollPane, BorderLayout.CENTER)
         
+        // Fixed minimum height for module panel
+        modulePanel.preferredSize = Dimension(700, 180)
+        modulePanel.minimumSize = Dimension(500, 160)
+        
         panel.add(modulePanel, BorderLayout.NORTH)
         
-        // Language selection
+        // Language selection - Using BoxLayout for responsive design
         val langPanel = JPanel(BorderLayout())
         langPanel.border = BorderFactory.createTitledBorder("Target Languages")
         
-        val langInputPanel = JPanel(FlowLayout(FlowLayout.LEFT))
+        // Language input section - Responsive layout
+        val langInputPanel = JPanel()
+        langInputPanel.layout = BoxLayout(langInputPanel, BoxLayout.X_AXIS)
+        langInputPanel.border = BorderFactory.createEmptyBorder(5, 5, 5, 5)
+        
         langInputPanel.add(JLabel("Language code:"))
+        langInputPanel.add(Box.createRigidArea(Dimension(5, 0)))
+        
+        languageInput.preferredSize = Dimension(80, 25)
+        languageInput.maximumSize = Dimension(100, 25)
         langInputPanel.add(languageInput)
         
+        langInputPanel.add(Box.createRigidArea(Dimension(5, 0)))
+        
         val addLangButton = JButton("Add")
+        addLangButton.preferredSize = Dimension(60, 25)
+        addLangButton.maximumSize = Dimension(60, 25)
         addLangButton.addActionListener { addLanguage() }
         langInputPanel.add(addLangButton)
         
+        langInputPanel.add(Box.createRigidArea(Dimension(5, 0)))
+        
         val removeLangButton = JButton("Remove")
+        removeLangButton.preferredSize = Dimension(80, 25)
+        removeLangButton.maximumSize = Dimension(80, 25)
         removeLangButton.addActionListener { removeLanguage() }
         langInputPanel.add(removeLangButton)
         
-        langPanel.add(langInputPanel, BorderLayout.NORTH)
-        val languageScrollPane = JScrollPane(languageList)
+        langInputPanel.add(Box.createHorizontalGlue())
         
-        // Setup smart scroll behavior for language list
+        langPanel.add(langInputPanel, BorderLayout.NORTH)
+        
+        val languageScrollPane = JScrollPane(languageList)
+        languageScrollPane.preferredSize = Dimension(680, 60)
+        languageScrollPane.minimumSize = Dimension(400, 50)
+        
         setupSmartScrollBehavior(languageList, languageScrollPane)
         
         langPanel.add(languageScrollPane, BorderLayout.CENTER)
         
-        // Common languages buttons
-        val commonLangPanel = JPanel(GridLayout(6, 4, 5, 5))
+        // Common languages buttons - Responsive grid
+        val commonLangPanel = JPanel(GridLayout(0, 6, 3, 3)) // 0 rows = auto-adjust
         val commonLanguages = mapOf(
-            "Vietnamese" to "vi",
-            "Chinese" to "zh", 
-            "Korean" to "ko",
-            "Japanese" to "ja",
-            "Italian" to "it",
-            "French" to "fr",
-            "German" to "de",
-            "Spanish" to "es",
-            "Arabic" to "ar",
-            "Bengali" to "bn",
-            "Greek" to "el",
-            "Hindi" to "hi",
-            "Indonesian" to "in",
-            "Marathi" to "mr",
-            "Malay" to "ms",
-            "Portuguese" to "pt",
-            "Portuguese (Brazil)" to "pt-rBR",
-            "Russian" to "ru",
-            "Tamil" to "ta",
-            "Telugu" to "te",
-            "Thai" to "th",
-            "Turkish" to "tr",
-            "Filipino" to "tl"
+            "Vietnamese" to "vi", "Chinese" to "zh", "Korean" to "ko", "Japanese" to "ja",
+            "Italian" to "it", "French" to "fr", "German" to "de", "Spanish" to "es",
+            "Arabic" to "ar", "Bengali" to "bn", "Greek" to "el", "Hindi" to "hi",
+            "Indonesian" to "in", "Marathi" to "mr", "Malay" to "ms", "Portuguese" to "pt",
+            "Portuguese (Brazil)" to "pt-rBR", "Russian" to "ru", "Tamil" to "ta", 
+            "Telugu" to "te", "Thai" to "th", "Turkish" to "tr", "Filipino" to "tl"
         )
         
         commonLanguages.forEach { (name, code) ->
             val button = JButton(name)
+            button.font = java.awt.Font(java.awt.Font.SANS_SERIF, java.awt.Font.PLAIN, 9)
+            button.margin = Insets(1, 2, 1, 2)
             button.addActionListener { addLanguageCode(code) }
             commonLangPanel.add(button)
         }
         
         val commonLangScrollPane = JScrollPane(commonLangPanel)
+        commonLangScrollPane.preferredSize = Dimension(680, 120)
+        commonLangScrollPane.minimumSize = Dimension(400, 100)
         langPanel.add(commonLangScrollPane, BorderLayout.SOUTH)
+        
+        // Set responsive sizing for language panel
+        langPanel.preferredSize = Dimension(700, 300)
+        langPanel.minimumSize = Dimension(500, 250)
         
         panel.add(langPanel, BorderLayout.CENTER)
         
-        // Status and translate button
+        // Status and translate button - Fixed sizing
         val bottomPanel = JPanel(BorderLayout())
+        bottomPanel.preferredSize = Dimension(700, 200)
+        bottomPanel.minimumSize = Dimension(500, 180)
         
         fileStatusArea.isEditable = false
         fileStatusArea.rows = 6
         val fileStatusScrollPane = JScrollPane(fileStatusArea)
+        fileStatusScrollPane.preferredSize = Dimension(680, 150)
+        fileStatusScrollPane.minimumSize = Dimension(400, 130)
         
-        // Setup smart scroll behavior for file status area
         setupSmartScrollBehavior(fileStatusArea, fileStatusScrollPane)
         
         bottomPanel.add(fileStatusScrollPane, BorderLayout.CENTER)
         
+        // Button panel with responsive layout
+        val buttonPanel = JPanel()
+        buttonPanel.layout = BoxLayout(buttonPanel, BoxLayout.X_AXIS)
+        buttonPanel.border = BorderFactory.createEmptyBorder(10, 10, 10, 10)
+        
+        buttonPanel.add(Box.createHorizontalGlue())
+        
         fileTranslateButton = JButton("🌍 Translate Module")
+        fileTranslateButton.preferredSize = Dimension(160, 30)
+        fileTranslateButton.maximumSize = Dimension(200, 30)
         fileTranslateButton.addActionListener { handleModuleTranslation() }
-        bottomPanel.add(fileTranslateButton, BorderLayout.SOUTH)
+        buttonPanel.add(fileTranslateButton)
+        
+        buttonPanel.add(Box.createHorizontalGlue())
+        
+        bottomPanel.add(buttonPanel, BorderLayout.SOUTH)
         
         panel.add(bottomPanel, BorderLayout.SOUTH)
         
@@ -285,64 +321,84 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
     private fun createStringInputSection(): JPanel {
         val stringsFrame = JPanel(BorderLayout())
         stringsFrame.border = BorderFactory.createTitledBorder("📝 Strings to Translate")
+        stringsFrame.preferredSize = Dimension(700, 400)
+        stringsFrame.minimumSize = Dimension(500, 350)
         
         // Bulk input section - Enhanced design
         val bulkPanel = JPanel(BorderLayout())
         bulkPanel.border = BorderFactory.createTitledBorder("📋 XML String Input")
+        bulkPanel.preferredSize = Dimension(680, 200)
         
-        // Instructions panel
-        val instructionsPanel = JPanel(FlowLayout(FlowLayout.LEFT))
-        val instructionsLabel = JBLabel("<html><i>Paste your XML strings below, then click Parse to add them to the translation list</i></html>")
+        // Instructions panel - Responsive
+        val instructionsPanel = JPanel()
+        instructionsPanel.layout = BoxLayout(instructionsPanel, BoxLayout.X_AXIS)
+        instructionsPanel.border = BorderFactory.createEmptyBorder(5, 5, 5, 5)
+        
+        val instructionsLabel = JBLabel("<html><i>Paste your XML strings below, then click Parse</i></html>")
         instructionsPanel.add(instructionsLabel)
+        instructionsPanel.add(Box.createHorizontalGlue())
+        
         bulkPanel.add(instructionsPanel, BorderLayout.NORTH)
         
         // Text area with better formatting
         bulkTextArea.lineWrap = true
         bulkTextArea.wrapStyleWord = true
-        bulkTextArea.font = java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 12)
+        bulkTextArea.font = java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 11)
         bulkTextArea.text = """"""
         
         val bulkScrollPane = JScrollPane(bulkTextArea)
-        bulkScrollPane.preferredSize = Dimension(700, 140)
+        bulkScrollPane.preferredSize = Dimension(680, 120)
+        bulkScrollPane.minimumSize = Dimension(400, 100)
         bulkScrollPane.border = BorderFactory.createLoweredBevelBorder()
         
-        // Setup smart scroll behavior for bulk text area
         setupSmartScrollBehavior(bulkTextArea, bulkScrollPane)
         
         bulkPanel.add(bulkScrollPane, BorderLayout.CENTER)
         
-        // Parse button with better styling
-        val buttonPanel = JPanel(FlowLayout(FlowLayout.CENTER))
-        val parseButton = JButton("🔄 Parse XML Strings")
-        parseButton.preferredSize = Dimension(150, 30)
+        // Parse button with responsive layout
+        val buttonPanel = JPanel()
+        buttonPanel.layout = BoxLayout(buttonPanel, BoxLayout.X_AXIS)
+        buttonPanel.border = BorderFactory.createEmptyBorder(5, 5, 5, 5)
+        
+        buttonPanel.add(Box.createHorizontalGlue())
+        
+        val parseButton = JButton("🔄 Parse XML")
+        parseButton.preferredSize = Dimension(120, 25)
+        parseButton.maximumSize = Dimension(120, 25)
         parseButton.addActionListener { parseBulkInput() }
         buttonPanel.add(parseButton)
         
-        val clearInputButton = JButton("🗑️ Clear Input")
-        clearInputButton.preferredSize = Dimension(120, 30)
+        buttonPanel.add(Box.createRigidArea(Dimension(10, 0)))
+        
+        val clearInputButton = JButton("🗑️ Clear")
+        clearInputButton.preferredSize = Dimension(80, 25)
+        clearInputButton.maximumSize = Dimension(80, 25)
         clearInputButton.addActionListener { 
             bulkTextArea.text = ""
             stringStatusArea.append("Input cleared\n")
         }
         buttonPanel.add(clearInputButton)
         
+        buttonPanel.add(Box.createHorizontalGlue())
+        
         bulkPanel.add(buttonPanel, BorderLayout.SOUTH)
         
-        stringsFrame.add(bulkPanel, BorderLayout.CENTER)
+        stringsFrame.add(bulkPanel, BorderLayout.NORTH)
         
         // String list table with enhanced design
         val tablePanel = JPanel(BorderLayout())
         tablePanel.border = BorderFactory.createTitledBorder("📊 Translation Queue")
+        tablePanel.preferredSize = Dimension(680, 180)
         
         stringTable.fillsViewportHeight = true
         stringTable.autoResizeMode = JTable.AUTO_RESIZE_ALL_COLUMNS
-        stringTable.rowHeight = 25
+        stringTable.rowHeight = 22
         stringTable.gridColor = java.awt.Color.LIGHT_GRAY
         stringTable.setShowGrid(true)
         
         // Set column widths
-        stringTable.columnModel.getColumn(0).preferredWidth = 250 // Name
-        stringTable.columnModel.getColumn(1).preferredWidth = 450 // Text
+        stringTable.columnModel.getColumn(0).preferredWidth = 200 // Name
+        stringTable.columnModel.getColumn(1).preferredWidth = 400 // Text
 
         // Add custom cell renderer to display actual \n, \t, \r escape sequences in the table
         stringTable.columnModel.getColumn(1).cellRenderer = object : DefaultTableCellRenderer() {
@@ -353,7 +409,6 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
                 val component = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column)
 
                 if (value is String) {
-                    // Display escape sequences: show "\n" for actual newlines, etc.
                     val displayText = value.replace("\n", "\\n").replace("\t", "\\t").replace("\r", "\\r")
                     text = displayText
                     toolTipText = "<html>${value.replace("\n", "<br>").replace("\t", "&nbsp;&nbsp;&nbsp;&nbsp;")}</html>"
@@ -364,36 +419,46 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         }
         
         val tableScrollPane = JScrollPane(stringTable)
-        tableScrollPane.preferredSize = Dimension(700, 180)
+        tableScrollPane.preferredSize = Dimension(680, 130)
+        tableScrollPane.minimumSize = Dimension(400, 100)
         tableScrollPane.border = BorderFactory.createLoweredBevelBorder()
         
-        // Setup smart scroll behavior for string table
         setupSmartScrollBehavior(stringTable, tableScrollPane)
         
         tablePanel.add(tableScrollPane, BorderLayout.CENTER)
         
-        // Table action buttons with icons
-        val tableButtonPanel = JPanel(FlowLayout(FlowLayout.LEFT))
+        // Table action buttons - Responsive layout
+        val tableButtonPanel = JPanel()
+        tableButtonPanel.layout = BoxLayout(tableButtonPanel, BoxLayout.X_AXIS)
+        tableButtonPanel.border = BorderFactory.createEmptyBorder(5, 5, 5, 5)
         
-        val removeButton = JButton("❌ Remove Selected")
-        removeButton.preferredSize = Dimension(140, 30)
+        val removeButton = JButton("❌ Remove")
+        removeButton.preferredSize = Dimension(100, 25)
+        removeButton.maximumSize = Dimension(100, 25)
         removeButton.addActionListener { removeSelectedString() }
         tableButtonPanel.add(removeButton)
         
-        val clearButton = JButton("🗑️ Clear All")
-        clearButton.preferredSize = Dimension(100, 30)
+        tableButtonPanel.add(Box.createRigidArea(Dimension(5, 0)))
+        
+        val clearButton = JButton("🗑️ Clear")
+        clearButton.preferredSize = Dimension(80, 25)
+        clearButton.maximumSize = Dimension(80, 25)
         clearButton.addActionListener { clearAllStrings() }
         tableButtonPanel.add(clearButton)
         
-        // Add quick add single string button
-        val quickAddButton = JButton("➕ Quick Add")
-        quickAddButton.preferredSize = Dimension(110, 30)
+        tableButtonPanel.add(Box.createRigidArea(Dimension(5, 0)))
+        
+        val quickAddButton = JButton("➕ Add")
+        quickAddButton.preferredSize = Dimension(80, 25)
+        quickAddButton.maximumSize = Dimension(80, 25)
         quickAddButton.addActionListener { showQuickAddDialog() }
         tableButtonPanel.add(quickAddButton)
         
+        tableButtonPanel.add(Box.createHorizontalGlue())
+        
         tablePanel.add(tableButtonPanel, BorderLayout.SOUTH)
         
-        stringsFrame.add(tablePanel, BorderLayout.SOUTH)
+        stringsFrame.add(tablePanel, BorderLayout.CENTER)
         
         return stringsFrame
     }
@@ -401,15 +466,25 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
     private fun createResourceDirectorySection(): JPanel {
         val dirFrame = JPanel(BorderLayout())
         dirFrame.border = BorderFactory.createTitledBorder("📦 Select Target Module")
+        dirFrame.preferredSize = Dimension(700, 250)
+        dirFrame.minimumSize = Dimension(500, 220)
         
-        // Module selection for String Addition
+        // Module selection for String Addition - Responsive layout
         val moduleSelectionPanel = JPanel(BorderLayout())
         
-        val moduleTopPanel = JPanel(FlowLayout(FlowLayout.LEFT))
+        // Top panel with responsive layout
+        val moduleTopPanel = JPanel()
+        moduleTopPanel.layout = BoxLayout(moduleTopPanel, BoxLayout.X_AXIS)
+        moduleTopPanel.border = BorderFactory.createEmptyBorder(5, 5, 5, 5)
+        
         val moduleLabel = JBLabel("<html><i>Select module to add strings to:</i></html>")
         moduleTopPanel.add(moduleLabel)
         
+        moduleTopPanel.add(Box.createHorizontalGlue())
+        
         val refreshModulesForStringButton = JButton("🔄 Refresh")
+        refreshModulesForStringButton.preferredSize = Dimension(90, 25)
+        refreshModulesForStringButton.maximumSize = Dimension(90, 25)
         refreshModulesForStringButton.addActionListener { 
             loadAvailableModules()
             updateStringModuleSelection()
@@ -418,9 +493,10 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         
         moduleSelectionPanel.add(moduleTopPanel, BorderLayout.NORTH)
         
-        // Module dropdown
+        // Module dropdown - Fixed sizing
         val moduleDropdown = JComboBox<ProjectScanner.AndroidModule>()
         moduleDropdown.font = java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 11)
+        moduleDropdown.preferredSize = Dimension(680, 25)
         moduleDropdown.renderer = object : DefaultListCellRenderer() {
             override fun getListCellRendererComponent(
                 list: JList<*>?, value: Any?, index: Int, isSelected: Boolean, cellHasFocus: Boolean
@@ -447,48 +523,55 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
             }
         }
         
-        moduleSelectionPanel.add(moduleDropdown, BorderLayout.CENTER)
+        val moduleDropdownPanel = JPanel(BorderLayout())
+        moduleDropdownPanel.border = BorderFactory.createEmptyBorder(5, 5, 5, 5)
+        moduleDropdownPanel.add(moduleDropdown, BorderLayout.CENTER)
+        moduleSelectionPanel.add(moduleDropdownPanel, BorderLayout.CENTER)
+        
         dirFrame.add(moduleSelectionPanel, BorderLayout.NORTH)
         
-        // Legacy resource directory field (read-only, for info)
-        val dirInputPanel = JPanel(GridBagLayout())
-        val gbc = GridBagConstraints()
+        // Legacy resource directory field - Responsive layout
+        val dirInputPanel = JPanel()
+        dirInputPanel.layout = BoxLayout(dirInputPanel, BoxLayout.X_AXIS)
+        dirInputPanel.border = BorderFactory.createEmptyBorder(5, 5, 5, 5)
         
-        gbc.gridx = 0; gbc.gridy = 0; gbc.anchor = GridBagConstraints.WEST
-        gbc.insets = Insets(5, 5, 5, 5)
-        dirInputPanel.add(JLabel("📂 Resource directory:"), gbc)
+        dirInputPanel.add(JLabel("📂 Resource:"))
+        dirInputPanel.add(Box.createRigidArea(Dimension(5, 0)))
         
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
-        resourceDirField.preferredSize = Dimension(450, 28)
-        resourceDirField.font = java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 11)
+        resourceDirField.preferredSize = Dimension(400, 25)
+        resourceDirField.maximumSize = Dimension(Integer.MAX_VALUE, 25)
+        resourceDirField.font = java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 10)
         resourceDirField.isEditable = false
         resourceDirField.background = UIManager.getColor("TextField.inactiveBackground")
-        dirInputPanel.add(resourceDirField, gbc)
+        dirInputPanel.add(resourceDirField)
         
-        gbc.gridx = 2; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
-        val browseResourceButton = JButton("📁 Browse")
-        browseResourceButton.preferredSize = Dimension(90, 28)
+        dirInputPanel.add(Box.createRigidArea(Dimension(5, 0)))
+        
+        val browseResourceButton = JButton("📁")
+        browseResourceButton.preferredSize = Dimension(40, 25)
+        browseResourceButton.maximumSize = Dimension(40, 25)
         browseResourceButton.addActionListener { browseResourceDir() }
-        dirInputPanel.add(browseResourceButton, gbc)
+        dirInputPanel.add(browseResourceButton)
         
         // Store dropdown reference for later use
         this.moduleDropdown = moduleDropdown
         
         dirFrame.add(dirInputPanel, BorderLayout.CENTER)
         
-        // Values folders selection with enhanced styling
+        // Values folders selection - Fixed sizing
         val valuesPanel = JPanel(BorderLayout())
+        valuesPanel.preferredSize = Dimension(700, 150)
         val valuesLabel = JLabel("🌍 Target language folders:")
-        valuesLabel.border = BorderFactory.createEmptyBorder(10, 5, 5, 5)
+        valuesLabel.border = BorderFactory.createEmptyBorder(5, 5, 2, 5)
         valuesPanel.add(valuesLabel, BorderLayout.NORTH)
         
         valuesList.selectionMode = ListSelectionModel.MULTIPLE_INTERVAL_SELECTION
-        valuesList.font = java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 12)
+        valuesList.font = java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 11)
         val valuesScrollPane = JScrollPane(valuesList)
-        valuesScrollPane.preferredSize = Dimension(700, 100)
+        valuesScrollPane.preferredSize = Dimension(680, 90)
+        valuesScrollPane.minimumSize = Dimension(400, 70)
         valuesScrollPane.border = BorderFactory.createLoweredBevelBorder()
         
-        // Setup smart scroll behavior for values list
         setupSmartScrollBehavior(valuesList, valuesScrollPane)
         
         valuesPanel.add(valuesScrollPane, BorderLayout.CENTER)
@@ -496,12 +579,14 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         // Enhanced values list with hover delete functionality
         setupLanguageListHover()
         
-        // Simple refresh button only
-        val langButtonPanel = JPanel(FlowLayout(FlowLayout.LEFT))
+        // Refresh button with responsive layout
+        val langButtonPanel = JPanel()
+        langButtonPanel.layout = BoxLayout(langButtonPanel, BoxLayout.X_AXIS)
         langButtonPanel.border = BorderFactory.createEmptyBorder(5, 5, 5, 5)
         
         val refreshButton = JButton("🔄 Refresh")
-        refreshButton.preferredSize = Dimension(90, 28)
+        refreshButton.preferredSize = Dimension(90, 25)
+        refreshButton.maximumSize = Dimension(90, 25)
         refreshButton.toolTipText = "Re-scan directory for language folders"
         refreshButton.addActionListener { 
             val dirPath = resourceDirField.text.trim()
@@ -510,10 +595,11 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
             }
         }
         langButtonPanel.add(refreshButton)
+        langButtonPanel.add(Box.createHorizontalGlue())
         
         valuesPanel.add(langButtonPanel, BorderLayout.SOUTH)
         
-        dirFrame.add(valuesPanel, BorderLayout.CENTER)
+        dirFrame.add(valuesPanel, BorderLayout.SOUTH)
         
         return dirFrame
     }
@@ -521,41 +607,48 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
     private fun createStatusSection(): JPanel {
         val statusFrame = JPanel(BorderLayout())
         statusFrame.border = BorderFactory.createTitledBorder("🚀 Translation Status & Actions")
+        statusFrame.preferredSize = Dimension(700, 220)
+        statusFrame.minimumSize = Dimension(500, 200)
         
         // Status area with proper IDE-themed styling
         stringStatusArea.isEditable = false
-        stringStatusArea.rows = 8
-        stringStatusArea.font = java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 12)
-        // Use system default colors for better consistency
+        stringStatusArea.rows = 6
+        stringStatusArea.font = java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 11)
         stringStatusArea.background = UIManager.getColor("TextArea.background")
         stringStatusArea.foreground = UIManager.getColor("TextArea.foreground")
-        stringStatusArea.border = BorderFactory.createEmptyBorder(8, 8, 8, 8)
+        stringStatusArea.border = BorderFactory.createEmptyBorder(5, 5, 5, 5)
         
         val statusScrollPane = JScrollPane(stringStatusArea)
-        statusScrollPane.preferredSize = Dimension(700, 150)
+        statusScrollPane.preferredSize = Dimension(680, 150)
+        statusScrollPane.minimumSize = Dimension(400, 130)
         statusScrollPane.border = BorderFactory.createLoweredBevelBorder()
         
-        // Setup smart scroll behavior for status area
         setupSmartScrollBehavior(stringStatusArea, statusScrollPane)
         
         statusFrame.add(statusScrollPane, BorderLayout.CENTER)
         
-        // Action buttons panel with enhanced styling
-        val actionPanel = JPanel(FlowLayout(FlowLayout.CENTER))
-        actionPanel.border = BorderFactory.createEmptyBorder(10, 0, 5, 0)
+        // Action buttons panel - Responsive layout
+        val actionPanel = JPanel()
+        actionPanel.layout = BoxLayout(actionPanel, BoxLayout.X_AXIS)
+        actionPanel.border = BorderFactory.createEmptyBorder(10, 10, 10, 10)
+        
+        actionPanel.add(Box.createHorizontalGlue())
         
         stringTranslateButton = JButton("🌍 Translate All Strings")
-        stringTranslateButton.preferredSize = Dimension(180, 35)
-        stringTranslateButton.font = java.awt.Font(java.awt.Font.SANS_SERIF, java.awt.Font.BOLD, 12)
-        // Use more subtle IDE-appropriate colors
+        stringTranslateButton.preferredSize = Dimension(170, 30)
+        stringTranslateButton.maximumSize = Dimension(200, 30)
+        stringTranslateButton.font = java.awt.Font(java.awt.Font.SANS_SERIF, java.awt.Font.BOLD, 11)
         stringTranslateButton.background = java.awt.Color(59, 142, 234) // IntelliJ blue
         stringTranslateButton.foreground = java.awt.Color.WHITE
         stringTranslateButton.isFocusPainted = false
         stringTranslateButton.addActionListener { handleStringTranslation() }
         actionPanel.add(stringTranslateButton)
         
-        val clearStatusButton = JButton("🗑️ Clear Status")
-        clearStatusButton.preferredSize = Dimension(120, 35)
+        actionPanel.add(Box.createRigidArea(Dimension(10, 0)))
+        
+        val clearStatusButton = JButton("🗑️ Clear")
+        clearStatusButton.preferredSize = Dimension(80, 30)
+        clearStatusButton.maximumSize = Dimension(80, 30)
         clearStatusButton.font = java.awt.Font(java.awt.Font.SANS_SERIF, java.awt.Font.PLAIN, 11)
         clearStatusButton.isFocusPainted = false
         clearStatusButton.addActionListener { 
@@ -563,6 +656,8 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
             stringStatusArea.append("Status cleared ✨\n")
         }
         actionPanel.add(clearStatusButton)
+        
+        actionPanel.add(Box.createHorizontalGlue())
         
         statusFrame.add(actionPanel, BorderLayout.SOUTH)
         
@@ -874,12 +969,14 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
                 modalityType = Dialog.ModalityType.APPLICATION_MODAL
                 layout = BorderLayout()
                 defaultCloseOperation = JDialog.DISPOSE_ON_CLOSE
+                preferredSize = Dimension(400, 250)
             }
         }
         
         val panel = JPanel(GridBagLayout())
+        panel.border = BorderFactory.createEmptyBorder(10, 10, 10, 10)
         val gbc = GridBagConstraints()
-        gbc.insets = Insets(10, 10, 10, 10)
+        gbc.insets = Insets(5, 5, 5, 5)
         
         // String name
         gbc.gridx = 0; gbc.gridy = 0; gbc.anchor = GridBagConstraints.WEST
@@ -887,7 +984,7 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         
         gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
         val nameField = JBTextField()
-        nameField.preferredSize = Dimension(300, 25)
+        nameField.preferredSize = Dimension(250, 25)
         panel.add(nameField, gbc)
         
         // String text
@@ -896,12 +993,12 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         panel.add(JLabel("Text:"), gbc)
         
         gbc.gridx = 1; gbc.fill = GridBagConstraints.BOTH; gbc.weightx = 1.0; gbc.weighty = 1.0
-        val textArea = JBTextArea(4, 30)
+        val textArea = JBTextArea(4, 25)
         textArea.lineWrap = true
         textArea.wrapStyleWord = true
         val scrollPane = JScrollPane(textArea)
+        scrollPane.preferredSize = Dimension(250, 80)
         
-        // Setup smart scroll behavior for dialog text area
         setupSmartScrollBehavior(textArea, scrollPane)
         
         panel.add(scrollPane, gbc)
@@ -911,6 +1008,7 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         // Buttons
         val buttonPanel = JPanel(FlowLayout())
         val addButton = JButton("✅ Add")
+        addButton.preferredSize = Dimension(80, 25)
         addButton.addActionListener {
             val name = nameField.text.trim()
             val text = textArea.text.trim()
@@ -926,6 +1024,7 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
         buttonPanel.add(addButton)
         
         val cancelButton = JButton("❌ Cancel")
+        cancelButton.preferredSize = Dimension(80, 25)
         cancelButton.addActionListener { dialog.dispose() }
         buttonPanel.add(cancelButton)
         
@@ -1012,7 +1111,7 @@ class XmlTranslatorPanel(private val project: Project) : JPanel() {
                     stringItems = stringItems,
                     resourceDir = resourceDir,
                     targetFolders = selectedValues.toTypedArray(),
-                    onProgress = { progress ->
+                    onProgress = { progress: String ->
                         // Check cancellation on each progress update
                         if (isStringTranslationCancelled) {
                             throw java.util.concurrent.CancellationException("Translation cancelled by user")

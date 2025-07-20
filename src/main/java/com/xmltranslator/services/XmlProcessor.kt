@@ -6,32 +6,63 @@ import org.w3c.dom.Document
 import org.w3c.dom.Element
 import java.io.File
 
-/**
- * Service for handling XML processing operations
- * 
- * @author Thanh Nguyen <thanhnguyen6702@gmail.com>
- */
+data class StringElement(
+    val name: String,
+    val text: String,
+    val translatable: String? = null,
+    val otherAttributes: Map<String, String> = emptyMap()
+) {
+    val isTranslatable: Boolean
+        get() = translatable == null || translatable.lowercase() != "false"
+        
+    fun toXmlString(): String {
+        val finalText = if (needsEscaping(text)) escapeXmlText(text) else text
+        val attributes = mutableListOf<String>()
+        
+        if (translatable != null) {
+            attributes.add("translatable=\"$translatable\"")
+        }
+        
+        otherAttributes.forEach { (key, value) ->
+            attributes.add("$key=\"$value\"")
+        }
+        
+        val attributeString = if (attributes.isNotEmpty()) " ${attributes.joinToString(" ")}" else ""
+        return "    <string name=\"$name\"$attributeString>$finalText</string>"
+    }
+    
+    companion object {
+        fun needsEscaping(text: String): Boolean {
+            return text.contains("'") || text.contains("\"") || 
+                   text.contains("&") || text.contains("\n") || 
+                   text.contains("\t") || text.contains("\r")
+        }
+        
+        fun escapeXmlText(text: String): String {
+            return text
+                .replace(Regex("&(?![a-zA-Z0-9#]+;)"), "&amp;")
+                .replace("'", "\\'")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\t", "\\t")
+                .replace("\r", "\\r")
+        }
+    }
+}
+
 @Service
 class XmlProcessor {
     
     private val stringFilter = service<StringFilter>()
     
-    /**
-     * Parse XML content và trả về Document
-     */
     fun parseXml(xmlContent: String): Document {
         val factory = javax.xml.parsers.DocumentBuilderFactory.newInstance()
         val builder = factory.newDocumentBuilder()
         return builder.parse(java.io.ByteArrayInputStream(xmlContent.toByteArray()))
     }
     
-    /**
-     * Extract string elements từ XML document và filter theo rules
-     */
     fun extractStringElements(document: Document): List<Pair<String, String>> {
         val stringElements = mutableListOf<Pair<String, String>>()
-        val excludedElements = mutableListOf<String>()
-        val nonTranslatableElements = mutableListOf<String>()
         val nodeList = document.getElementsByTagName("string")
         
         for (i in 0 until nodeList.length) {
@@ -39,47 +70,28 @@ class XmlProcessor {
             val translatable = element.getAttribute("translatable")
             
             if (translatable.isNotEmpty() && translatable.lowercase() == "false") {
-                val name = element.getAttribute("name")
-                if (name.isNotEmpty()) {
-                    nonTranslatableElements.add(name)
-                }
-            } else {
-                val name = element.getAttribute("name")
-                val text = element.textContent
-                
-                if (name.isNotEmpty() && text.isNotEmpty()) {
-                    if (stringFilter.shouldExcludeString(name)) {
-                        excludedElements.add(name)
-                    } else {
-                        stringElements.add(name to text)
-                    }
-                }
+                continue
             }
-        }
-        
-        // Summary log
-        println("📊 Phân tích XML: ${stringElements.size} strings để dịch")
-        if (excludedElements.isNotEmpty()) {
-            println("🚫 Bỏ qua ${excludedElements.size} strings: ${excludedElements.take(3).joinToString(", ")}${if (excludedElements.size > 3) "..." else ""}")
-        }
-        if (nonTranslatableElements.isNotEmpty()) {
-            println("⏭️ Bỏ qua ${nonTranslatableElements.size} strings có translatable=\"false\"")
+            
+            val name = element.getAttribute("name")
+            val text = element.textContent
+            
+            if (name.isNotEmpty() && text.isNotEmpty() && !stringFilter.shouldExcludeString(name)) {
+                stringElements.add(name to text)
+            }
         }
         
         return stringElements
     }
     
-    /**
-     * Save translated strings thành XML file
-     */
     fun saveTranslatedXml(translations: List<Pair<String, String>>, outputFile: File) {
         val xmlContent = buildString {
             appendLine("<?xml version=\"1.0\" encoding=\"utf-8\"?>")
             appendLine("<resources>")
             
             translations.forEach { (name, text) ->
-                val escapedText = escapeXmlText(text)
-                appendLine("    <string name=\"$name\">$escapedText</string>")
+                val finalText = if (StringElement.needsEscaping(text)) StringElement.escapeXmlText(text) else text
+                appendLine("    <string name=\"$name\">$finalText</string>")
             }
             
             appendLine("</resources>")
@@ -87,10 +99,81 @@ class XmlProcessor {
         
         outputFile.writeText(xmlContent)
     }
+
+    fun mergeTranslatedXml(translations: List<Pair<String, String>>, outputFile: File) {
+        val existingStrings = if (outputFile.exists()) {
+            try {
+                val existingContent = outputFile.readText()
+                val existingDocument = parseXml(existingContent)
+                extractAllStringElementsWithAttributes(existingDocument)
+            } catch (e: Exception) {
+                emptyList()
+            }
+        } else {
+            emptyList()
+        }
+        
+        val newTranslationsMap = translations.toMap()
+        val existingStringsMap = existingStrings.associateBy { it.name }
+        val finalStringElements = mutableMapOf<String, StringElement>()
+        
+        existingStringsMap.forEach { (name, element) ->
+            finalStringElements[name] = element
+        }
+        
+        newTranslationsMap.forEach { (name, newText) ->
+            val existing = existingStringsMap[name]
+            if (existing != null && !existing.isTranslatable) {
+                return@forEach
+            } else {
+                finalStringElements[name] = StringElement(name, newText)
+            }
+        }
+        
+        val sortedElements = finalStringElements.values.sortedBy { it.name }
+        
+        val xmlContent = buildString {
+            appendLine("<?xml version=\"1.0\" encoding=\"utf-8\"?>")
+            appendLine("<resources>")
+            
+            sortedElements.forEach { element ->
+                appendLine(element.toXmlString())
+            }
+            
+            appendLine("</resources>")
+        }
+        
+        outputFile.writeText(xmlContent)
+    }
+
+    private fun extractAllStringElementsWithAttributes(document: Document): List<StringElement> {
+        val stringElements = mutableListOf<StringElement>()
+        val nodeList = document.getElementsByTagName("string")
+        
+        for (i in 0 until nodeList.length) {
+            val element = nodeList.item(i) as Element
+            val name = element.getAttribute("name")
+            val text = element.textContent
+            
+            if (name.isNotEmpty() && text.isNotEmpty()) {
+                val translatable = element.getAttribute("translatable").takeIf { it.isNotEmpty() }
+                
+                val otherAttributes = mutableMapOf<String, String>()
+                val attributes = element.attributes
+                for (j in 0 until attributes.length) {
+                    val attr = attributes.item(j)
+                    if (attr.nodeName != "name" && attr.nodeName != "translatable") {
+                        otherAttributes[attr.nodeName] = attr.nodeValue
+                    }
+                }
+                
+                stringElements.add(StringElement(name, text, translatable, otherAttributes))
+            }
+        }
+        
+        return stringElements
+    }
     
-    /**
-     * Add hoặc update một string trong XML file
-     */
     fun addOrUpdateStringInXml(xmlFile: File, stringName: String, text: String) {
         val content = if (xmlFile.exists()) {
             xmlFile.readText()
@@ -100,17 +183,34 @@ class XmlProcessor {
 </resources>"""
         }
         
-        val escapedText = escapeXmlText(text)
-        val stringElement = "    <string name=\"$stringName\">$escapedText</string>"
+        val existingElements = if (xmlFile.exists() && content.contains("<string")) {
+            try {
+                val document = parseXml(content)
+                extractAllStringElementsWithAttributes(document)
+            } catch (e: Exception) {
+                emptyList()
+            }
+        } else {
+            emptyList()
+        }
         
-        if (content.contains("name=\"$stringName\"")) {
-            // Update existing string - Fix for "Illegal group reference" error
+        val existingElement = existingElements.find { it.name == stringName }
+        
+        if (existingElement != null) {
+            val updatedElement = if (existingElement.isTranslatable) {
+                existingElement.copy(text = text)
+            } else {
+                existingElement
+            }
+            
+            val newStringLine = updatedElement.toXmlString()
             val regex = """    <string name="$stringName"[^>]*>.*?</string>""".toRegex(RegexOption.DOT_MATCHES_ALL)
-            // Use literal replacement to avoid issues with $ characters in replacement string
-            val updatedContent = regex.replace(content) { stringElement }
+            val updatedContent = regex.replace(content) { newStringLine }
             xmlFile.writeText(updatedContent)
         } else {
-            // Add new string with proper formatting
+            val newElement = StringElement(stringName, text)
+            val stringElement = newElement.toXmlString()
+            
             val insertPosition = content.lastIndexOf("</resources>")
             if (insertPosition != -1) {
                 val beforeResources = content.substring(0, insertPosition).trimEnd()
@@ -118,15 +218,12 @@ class XmlProcessor {
                 
                 val newContent = when {
                     beforeResources.trim().endsWith("<resources>") -> {
-                        // First string in empty resources
                         "$beforeResources\n$stringElement\n$afterResources"
                     }
                     beforeResources.trim().endsWith("</string>") -> {
-                        // Adding after existing strings
                         "$beforeResources\n$stringElement\n$afterResources"
                     }
                     else -> {
-                        // Fallback case
                         "$beforeResources\n$stringElement\n$afterResources"
                     }
                 }
@@ -136,18 +233,25 @@ class XmlProcessor {
         }
     }
     
-    /**
-     * Escape XML text để tránh parsing errors
-     */
-    private fun escapeXmlText(text: String): String {
-        // Preserve formatting characters as escape sequences in XML
-        // This ensures \n characters are kept as \n in the output XML
-        return text
-            .replace(Regex("&(?![a-zA-Z0-9#]+;)"), "&amp;") // Only escape unescaped ampersands
-            .replace("'", "&apos;") // Escape single quotes
-            .replace("\n", "\\n") // Convert actual newlines to \n escape sequence
-            .replace("\t", "\\t") // Convert actual tabs to \t escape sequence
-            .replace("\r", "\\r") // Convert actual carriage returns to \r escape sequence
-        // Note: < > and " are preserved by AI via prompt instructions for HTML formatting
+    companion object {
+        fun escapeXmlText(text: String): String {
+            return text
+                .replace(Regex("&(?![a-zA-Z0-9#]+;)"), "&amp;")
+                .replace("'", "\\'")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\t", "\\t")
+                .replace("\r", "\\r")
+        }
+        
+        fun unescapeXmlText(text: String): String {
+            return text
+                .replace("\\n", "\n")
+                .replace("\\t", "\t")
+                .replace("\\r", "\r") 
+                .replace("\\'", "'")
+                .replace("\\\"", "\"")
+                .replace("&amp;", "&")
+        }
     }
 } 

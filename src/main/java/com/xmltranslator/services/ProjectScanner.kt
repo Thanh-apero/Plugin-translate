@@ -13,11 +13,11 @@ import java.io.File
 class ProjectScanner {
     
     enum class ModuleType(val displayName: String, val icon: String) {
-        ANDROID("Android", "📱"),
-        KMM_SHARED("KMM Shared", "🔗"),
-        KMM_ANDROID("KMM Android", "📱"),
-        KMM_COMMON("KMM Common", "🌐"),
-        ANDROID_APP("Android App", "📲")
+        ANDROID("Android", ""),
+        KMM_SHARED("KMM Shared", ""),
+        KMM_ANDROID("KMM Android", ""),
+        KMM_COMMON("KMM Common", ""),
+        ANDROID_APP("Android App", "")
     }
     
     private data class ResourcePath(val path: String, val moduleType: ModuleType)
@@ -187,10 +187,10 @@ class ProjectScanner {
             if (modules.isEmpty()) {
                 appendLine("❌ No modules found")
                 appendLine("💡 Supported structures:")
-                appendLine("   📱 Android: module/src/main/res/values/")
-                appendLine("   🌐 KMM Common: shared/src/commonMain/resources/")
-                appendLine("   📱 KMM Android: shared/src/androidMain/res/values/")
-                appendLine("   📲 KMM App: androidApp/src/main/res/values/")
+                appendLine("    Android: module/src/main/res/values/")
+                appendLine("    KMM Common: shared/src/commonMain/resources/")
+                appendLine("    KMM Android: shared/src/androidMain/res/values/")
+                appendLine("    KMM App: androidApp/src/main/res/values/")
             } else {
                 modulesByType.forEach { (type, moduleList) ->
                     appendLine("${type.icon} ${type.displayName} Modules (${moduleList.size}):")

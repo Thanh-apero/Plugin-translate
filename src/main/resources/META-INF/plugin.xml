@@ -2,7 +2,7 @@
     <id>com.translatestrings.plugin</id>
     <name>Apero Translate strings</name>
     <vendor email="thanhnguyen6702@gmail.com" url="https://github.com/thanhnguyen6702">Thanh Nguyen</vendor>
-    <version>0.0.3</version>
+    <version>0.0.4</version>
     
 
     <description><![CDATA[
@@ -25,7 +25,19 @@
     ]]></description>
 
     <change-notes><![CDATA[
-        <h3>Version 1.0.3 - Major Update</h3>
+        <h3>Version 0.0.4 - Ultra Parallel & Dynamic Model</h3>
+        <ul>
+            <li>🚀 <strong>Ultra Parallel Translation</strong> - Multi-threaded translation using all available API keys simultaneously</li>
+            <li>⚡ <strong>Simultaneous Language Processing</strong> - Calculate and translate multiple languages at once based on rate limits</li>
+            <li>🧠 <strong>Dynamic Model Loading</strong> - Fetch model name from remote URL, no hardcoded models</li>
+            <li>🔄 <strong>429 Rate Limit Auto-Retry</strong> - Automatic 60-second wait and retry for rate limit errors</li>
+            <li>📊 <strong>Smart Batch Sizing</strong> - Optimal 100-string batches for maximum API efficiency</li>
+            <li>🛡️ <strong>Robust Cancellation</strong> - Proper thread interruption and cleanup on user cancel</li>
+            <li>🔧 <strong>Clean Code Architecture</strong> - Removed unnecessary logic, focus on essential multi-threading</li>
+            <li>📈 <strong>Performance</strong> - Up to 6x faster translation with 2 API keys (6 languages simultaneously)</li>
+        </ul>
+        
+        <h3>Version 0.0.3 - Major Module Update</h3>
         <ul>
             <li>🚀 <strong>Module-based Translation</strong> - Auto-detect Android modules, no manual file selection needed</li>
             <li>🌐 <strong>KMM Support</strong> - Full Kotlin Multiplatform Mobile support (shared, androidMain, commonMain)</li>
